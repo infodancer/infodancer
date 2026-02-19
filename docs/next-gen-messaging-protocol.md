@@ -551,5 +551,5 @@ Opt-in web-of-trust reputation layer:
 
 1. **Encryption model specifics** — multi-recipient key wrapping, forward secrecy, algorithm selection
 2. **Wire protocol** — binary format, versioning, extension mechanisms
-3. **Domain discovery** — ~~how does a sending server find the receiving server for a domain?~~ **Decided: DNS SRV (`_[abbrev]._tcp.domain`). No SRV → fall back to SMTP. See protocol-outlines.md.**
+3. **Domain discovery** — ~~how does a sending server find the receiving server for a domain?~~ **Decided: DNS SRV (`_mail._tcp.domain`). No SRV → fall back to SMTP. See protocol-outlines.md.**
 4. **Reference implementation design** — minimal correct implementation targeted at small hosters

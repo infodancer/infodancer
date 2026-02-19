@@ -6,8 +6,8 @@
 
 | Topic | Decision |
 |---|---|
-| Domain discovery | DNS SRV records (`_[abbrev]._tcp.domain`). See below. |
-| Protocol name abbreviation | TBD — placeholder `msgs` used throughout |
+| Domain discovery | DNS SRV records (`_mail._tcp.domain`). See below. |
+| Protocol name abbreviation | TBD — placeholder `mail` used throughout |
 
 These outlines enumerate the design problems each protocol must solve and the leading options for each. This is not a specification — it is a set of open questions intended to drive editorial discussion before the specification phase begins.
 
@@ -24,10 +24,10 @@ The two protocol split is established in the main requirements document:
 **Decision: DNS SRV records.**
 
 ```
-_[abbrev]._tcp.example.com.  IN  SRV  10  5  1234  msgs.example.com.
+_mail._tcp.example.com.  IN  SRV  10  5  1234  msgs.example.com.
 ```
 
-A sending server resolves `_[abbrev]._tcp.{domain}` to find the receiving server's host and port. Multiple SRV records are supported for priority/failover per RFC 2782.
+A sending server resolves `_mail._tcp.{domain}` to find the receiving server's host and port. Multiple SRV records are supported for priority/failover per RFC 2782.
 
 **If no SRV record exists:** fall back to SMTP bridge. This is acceptable for the coexistence period and correctly routes legacy traffic to legacy infrastructure.
 
@@ -35,7 +35,7 @@ A sending server resolves `_[abbrev]._tcp.{domain}` to find the receiving server
 
 **On IM2000's prime-number MX approach:** clever as a transition marker during SMTP coexistence, and worth acknowledging in the specification for historical context. Not appropriate as a primary discovery mechanism for a formal protocol. See the extended discussion at the end of this document.
 
-**Protocol name placeholder:** `_[abbrev]._tcp` — service label TBD pending a name for the protocol. `msgs` used as placeholder throughout this document.
+**Protocol name placeholder:** `_mail._tcp` — service label TBD pending a name for the protocol. `mail` used as placeholder throughout this document.
 
 ---
 
@@ -424,7 +424,7 @@ SRV records provide explicit service discovery: `_service._proto.domain SRV prio
 
 **Example for this protocol:**
 ```
-_msgs._tcp.example.com.   IN SRV  10 5 1234 msgs.example.com.
+_mail._tcp.example.com.   IN SRV  10 5 1234 msgs.example.com.
 ```
 
 **Arguments for:**
@@ -432,7 +432,7 @@ _msgs._tcp.example.com.   IN SRV  10 5 1234 msgs.example.com.
 - Explicit: service name, port, weight, target are all directly stated
 - Already deployed for XMPP (`_xmpp-server._tcp`), SIP, and others
 - Extensible: add more SRV records for new versions or services
-- No ambiguity — `_msgs._tcp.example.com` unambiguously means "messaging service for this domain"
+- No ambiguity — `_mail._tcp.example.com` unambiguously means "messaging service for this domain"
 - Separate from MX — no inherited SMTP semantics
 
 **Arguments against:**
@@ -503,7 +503,7 @@ Returns JSON:
 
 **On prime-number MX:** retains value as a transition signal during SMTP coexistence — a domain could publish both a valid SMTP MX and a prime-priority MX pointing to a server that speaks both protocols, allowing upgraded senders to negotiate the new protocol without a DNS SRV record. Worth specifying as an optional transition mechanism if the coexistence story demands it. Not the primary discovery mechanism.
 
-**Protocol name placeholder:** service label in SRV records is `_[abbrev]._tcp` pending a name decision.
+**Protocol name placeholder:** service label in SRV records is `_mail._tcp` pending a name decision.
 
 ---
 
