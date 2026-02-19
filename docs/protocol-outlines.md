@@ -2,6 +2,13 @@
 *Editorial discussion document — problems and options, not decisions*
 *Last updated: 2026-02-19*
 
+## Decisions
+
+| Topic | Decision |
+|---|---|
+| Domain discovery | DNS SRV records (`_[abbrev]._tcp.domain`). See below. |
+| Protocol name abbreviation | TBD — placeholder `msgs` used throughout |
+
 These outlines enumerate the design problems each protocol must solve and the leading options for each. This is not a specification — it is a set of open questions intended to drive editorial discussion before the specification phase begins.
 
 The two protocol split is established in the main requirements document:
@@ -14,21 +21,21 @@ The two protocol split is established in the main requirements document:
 
 ### Problem 1: Domain Discovery
 
-How does a sending server locate the receiving server for a domain?
+**Decision: DNS SRV records.**
 
-This is the most fundamental problem for federation adoption and the most politically fraught. See the extended discussion at the end of this document: [IM2000 Prime-Number MX vs. DNS SRV vs. Alternatives](#domain-discovery-extended).
+```
+_[abbrev]._tcp.example.com.  IN  SRV  10  5  1234  msgs.example.com.
+```
 
-**Options:**
+A sending server resolves `_[abbrev]._tcp.{domain}` to find the receiving server's host and port. Multiple SRV records are supported for priority/failover per RFC 2782.
 
-- **A. DNS SRV records** — `_msgs._tcp.example.com SRV 0 5 1234 server.example.com`. Well-specified (RFC 2782), already used by XMPP/SIP federation. Explicit service name, port, weight, target. Adoption friction: many DNS operators and provisioning tools handle SRV poorly for email-adjacent services. SMTP deliberately avoided SRV; the email world has a long memory.
+**If no SRV record exists:** fall back to SMTP bridge. This is acceptable for the coexistence period and correctly routes legacy traffic to legacy infrastructure.
 
-- **B. Well-known HTTPS endpoint** — `https://example.com/.well-known/messaging` returns a JSON document with server address, port, and key material. Zero DNS changes required; works with any DNS that supports A records. Adds HTTP dependency to bootstrapping. CDN/proxy complications. Hosting providers could redirect this transparently. Easiest to implement, easiest to adopt.
+**If a DNS provider doesn't support SRV records:** our target market is small operators running their own infrastructure. They choose their DNS provider. SRV support is table stakes — switch providers. This is not a burden we will carry in the protocol.
 
-- **C. DNS TXT record** — `_messaging.example.com TXT "v=msg1 server=msgs.example.com port=1234"`. Same family as SPF/DKIM/DMARC; familiar to email administrators. TXT records are overloaded but widely supported. No RFC to reference; protocol would define the format.
+**On IM2000's prime-number MX approach:** clever as a transition marker during SMTP coexistence, and worth acknowledging in the specification for historical context. Not appropriate as a primary discovery mechanism for a formal protocol. See the extended discussion at the end of this document.
 
-- **D. IM2000 prime-number MX** — Signal support via prime MX priority values; fall back to SMTP if not recognized. No DNS changes required for publishers; discovery is implicit. See extended discussion below.
-
-- **E. Hybrid** — DNS SRV preferred; fall back to well-known URL; fall back to SMTP bridge. Maximizes compatibility at cost of discovery complexity.
+**Protocol name placeholder:** `_[abbrev]._tcp` — service label TBD pending a name for the protocol. `msgs` used as placeholder throughout this document.
 
 ---
 
@@ -485,18 +492,18 @@ Returns JSON:
 | Well-known HTTPS | None | Easy | High | WebFinger, ACME |
 | Hybrid DNS TXT + HTTPS | New record | Moderate | High | Novel |
 
-### Editorial Position (Deferred)
+### Decision: DNS SRV
 
-No decision made. The choice should be driven by:
-1. Deployment experience of small hosters (primary target audience)
-2. Whether the initial reference implementation targets technical users or general adoption
-3. Whether we prioritize zero-infrastructure-change adoption or long-term protocol cleanliness
+**DNS SRV is the specified mechanism.** The primary target audience is small operators running their own infrastructure. They choose their DNS provider; SRV support is a reasonable prerequisite. DNS providers that don't support SRV are not the right tool for self-hosted infrastructure.
 
-The prime-number MX approach is probably not the right answer for a formal protocol standard, but it merits acknowledgment as the approach taken by the closest prior art.
+**Fallback behavior:**
+- SRV record found → use this protocol
+- No SRV record found → fall back to SMTP (MX lookup, standard SMTP delivery)
+- SMTP fallback is the coexistence bridge, not a long-term target
 
-The well-known HTTPS approach has the best adoption profile but adds infrastructure coupling. DNS TXT has good prior art in the email space. SRV is technically cleanest but historically problematic for email adoption.
+**On prime-number MX:** retains value as a transition signal during SMTP coexistence — a domain could publish both a valid SMTP MX and a prime-priority MX pointing to a server that speaks both protocols, allowing upgraded senders to negotiate the new protocol without a DNS SRV record. Worth specifying as an optional transition mechanism if the coexistence story demands it. Not the primary discovery mechanism.
 
-**Recommend prototyping with well-known HTTPS** for the reference implementation (zero friction for early adopters) while specifying DNS SRV as the formal mechanism. Implementations SHOULD support both.
+**Protocol name placeholder:** service label in SRV records is `_[abbrev]._tcp` pending a name decision.
 
 ---
 
