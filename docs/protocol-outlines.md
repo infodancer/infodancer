@@ -7,7 +7,9 @@
 | Topic | Decision |
 |---|---|
 | Domain discovery | DNS SRV records (`_mail._tcp.domain`). See below. |
-| Protocol name abbreviation | TBD — placeholder `mail` used throughout |
+| SRV service label | `mail` — `_mail._tcp`. See namespace note below. |
+
+**SRV namespace note:** SRV service names are governed by IANA under [RFC 6335](https://www.rfc-editor.org/rfc/rfc6335) (the Service Name and Transport Protocol Port Number Registry). `_mail` does not appear to be formally registered for any existing protocol, but we are squatting on it until/unless a formal registration is pursued. For development and early deployment this is fine; for a published standard, registration with IANA would be required. The registration process is straightforward — submit a request, IANA reviews for conflicts. Port number registration would accompany it. Worth doing before any public announcement.
 
 These outlines enumerate the design problems each protocol must solve and the leading options for each. This is not a specification — it is a set of open questions intended to drive editorial discussion before the specification phase begins.
 
@@ -35,7 +37,7 @@ A sending server resolves `_mail._tcp.{domain}` to find the receiving server's h
 
 **On IM2000's prime-number MX approach:** clever as a transition marker during SMTP coexistence, and worth acknowledging in the specification for historical context. Not appropriate as a primary discovery mechanism for a formal protocol. See the extended discussion at the end of this document.
 
-**Protocol name placeholder:** `_mail._tcp` — service label TBD pending a name for the protocol. `mail` used as placeholder throughout this document.
+**Service label: `_mail._tcp`.** See namespace note in the Decisions section.
 
 ---
 
@@ -503,7 +505,7 @@ Returns JSON:
 
 **On prime-number MX:** retains value as a transition signal during SMTP coexistence — a domain could publish both a valid SMTP MX and a prime-priority MX pointing to a server that speaks both protocols, allowing upgraded senders to negotiate the new protocol without a DNS SRV record. Worth specifying as an optional transition mechanism if the coexistence story demands it. Not the primary discovery mechanism.
 
-**Protocol name placeholder:** service label in SRV records is `_mail._tcp` pending a name decision.
+**Service label:** `_mail._tcp`. IANA registration to be pursued before public announcement. See namespace note in Decisions section.
 
 ---
 
