@@ -16,6 +16,7 @@ decisions that span multiple repos.
 | [oidc-federation-design.md](docs/oidc-federation-design.md) | Auth stack design: auth-oidc + webauth use cases, security model, what must not be changed |
 | [federated-identity-stack.md](docs/federated-identity-stack.md) | Identity federation overview |
 | [next-gen-messaging-protocol.md](docs/next-gen-messaging-protocol.md) | Messaging protocol design |
+| [encryption-design.md](docs/encryption-design.md) | At-rest encryption: key model, delivery/retrieval points, fd key-passing convention |
 
 ## Critical Reading
 
