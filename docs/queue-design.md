@@ -99,17 +99,37 @@ next_attempt = env_mtime + backoff_interval(now - env_mtime)
 where `backoff_interval` doubles with age (e.g., 5m → 10m → 20m → 1h → 4h),
 capped at a configured maximum. No state beyond the mtime is needed.
 
-## Delivery Binary: `remote-deliver`
+## Delivery Binary: `mail-remote`
 
-A standalone command-line binary. Can be invoked by the queue manager or by
-hand for a single envelope:
+A standalone command-line binary. Named to parallel `mail-deliver` (local
+delivery). Can be invoked by the queue manager or by hand.
 
 ```sh
-remote-deliver queue/env/com/gmail/alice@abc123def456789.001
+mail-remote <body-file> <envelope-file> [envelope-file ...]
 ```
 
-It reads the envelope, locates the body via MSGID, and delivers. DNS lookup
-order per recipient domain:
+The body file is the first argument; one or more envelope files follow. This
+allows the queue manager to batch all ready recipients for a given domain into a
+single invocation — one body read, one SMTP connection, multiple `RCPT TO`.
+It also enables clean manual single-recipient delivery for testing or redelivery.
+
+```sh
+# Single recipient
+mail-remote queue/msg/com/example/abc123 queue/env/com/gmail/alice@abc123.001
+
+# Batch: all ready envelopes for gmail.com
+mail-remote queue/msg/com/example/abc123 \
+    queue/env/com/gmail/alice@abc123.001 \
+    queue/env/com/gmail/bob@abc123.002
+```
+
+`mail-remote` reads the first envelope to determine the recipient domain, performs
+DNS resolution once for that domain, and delivers to all supplied recipients in
+one session where the protocol permits (SMTP RCPT TO batching; new-protocol
+sends one notification per message regardless of recipient count). All envelopes
+must share the same recipient domain — the queue manager enforces this grouping.
+
+DNS lookup order per recipient domain:
 
 1. **SRV** `_mail._tcp.{recipient_domain}` → found: send new-protocol
    notification (store-and-notify model). Done.
@@ -121,10 +141,10 @@ On every retry attempt, DNS is queried fresh; a domain that gains an SRV record
 between retries will automatically receive new-protocol delivery without any
 queue reconfiguration.
 
-On success: exits 0. Caller deletes the envelope file.
-On temporary failure: exits with a temp-fail code. Caller updates env mtime
-(triggering backoff).
-On permanent failure: exits with a perm-fail code. Caller deletes the envelope.
+Exit codes (per envelope):
+- 0: success — caller deletes the envelope file.
+- Temp-fail: caller updates env mtime (triggering backoff), retries later.
+- Perm-fail: caller deletes the envelope; no further attempts.
 
 ## Queue Manager: `queue-manager`
 
@@ -132,10 +152,10 @@ Drives the retry loop. Responsibilities:
 
 - Scan `env/` for envelopes whose backoff interval has elapsed.
 - Batch envelopes by recipient domain: when multiple envelopes under the same
-  domain directory are ready, invoke `remote-deliver` for each within a single
-  delivery session where the protocol supports batching (SMTP pipelines multiple
-  recipients per connection; new-protocol sends one notification per message).
-- On TTL expiry: invoke `remote-deliver` for final SMTP attempt, then delete
+  domain directory are ready, invoke `mail-remote` with the body and all ready
+  envelopes in one call (SMTP batches multiple RCPT TO per connection;
+  new-protocol sends one notification per message regardless of recipient count).
+- On TTL expiry: invoke `mail-remote` for final SMTP attempt, then delete
   envelope regardless of outcome.
 - Sweep `msg/` for expired bodies and delete them.
 - Rate-limit per destination domain: count in-flight envelopes per domain
@@ -153,7 +173,7 @@ stored in the envelope's `SENDER` field. Format:
 bounces+{localpart}={recipient_domain}@{bounce_handling_domain}
 ```
 
-Each envelope carries its own VERP sender. No generation logic in `remote-deliver`.
+Each envelope carries its own VERP sender. No generation logic in `mail-remote`.
 
 ## Encryption Compatibility
 
@@ -161,7 +181,7 @@ Message bodies are written once by smtpd and treated as opaque bytes thereafter.
 When at-rest encryption is implemented:
 
 - smtpd encrypts the payload before writing to `msg/`.
-- `remote-deliver` reads and transmits bytes without decryption.
+- `mail-remote` reads and transmits bytes without decryption.
 - The queue manager never reads body content.
 
 No changes to queue structure or delivery binary logic are required when
@@ -171,9 +191,9 @@ encryption is enabled.
 
 | Repo | Purpose |
 |------|---------|
-| `infodancer/remote-deliver` | Delivery binary: DNS resolution, SMTP, new-protocol notification |
+| `infodancer/mail-remote`    | Delivery binary: DNS resolution, SMTP, new-protocol notification |
 | `infodancer/queue-manager`  | Queue driver: retry scheduling, TTL expiry, batching, rate limiting |
 
-`remote-deliver` has no dependency on `queue-manager`. The queue manager
-invokes `remote-deliver` as a subprocess, or `remote-deliver` is called
-directly for manual delivery or testing.
+`mail-remote` has no dependency on `queue-manager`. The queue manager invokes
+`mail-remote` as a subprocess; `mail-remote` can also be called directly for
+manual delivery or testing.
