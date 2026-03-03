@@ -68,18 +68,37 @@ The design supports a future upgrade where the password unlocks a per-user keyri
 
 The spawning daemon (pop3d or imapd) must pass the user's decrypted private key to the mail-session subprocess securely.
 
-**Convention:** fd 3 carries the 32-byte raw private key.
+**Convention:** fd 3 carries a versioned JSON key envelope.
 
-**Protocol:**
+### Envelope Format
+
+```json
+{"version":1,"key":"<base64-encoded 32 bytes>"}
+```
+
+The JSON envelope (rather than raw bytes) provides an extension point without a breaking protocol change. Future fields can be added to v1, or v2 can add new top-level keys:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `version` | int | Always `1` for now |
+| `key` | []byte (base64) | 32-byte NaCl private key |
+| `algorithm` *(future)* | string | e.g. `"nacl-box"` |
+| `key_id` *(future)* | string | Key fingerprint for logging/rotation |
+| `expires` *(future)* | string (RFC3339) | Key expiry time |
+| `keys` *(future v2)* | array | Multiple keys for keyring/device support |
+
+### Protocol
+
 1. After authentication, the daemon derives or retrieves the user's private key
 2. Creates an `os.Pipe()`
-3. Writes the 32-byte key to the write end and closes it
+3. JSON-encodes the key envelope to the write end and closes it
 4. Passes the read end as `cmd.ExtraFiles[0]` (fd 3 in the child)
-5. mail-session reads up to 32 bytes from fd 3 at startup, closes the fd immediately
-6. Calls `DecryptingStore.SetSessionKey()` with the key bytes
-7. Calls `DecryptingStore.ClearSessionKey()` on exit
+5. mail-session JSON-decodes the envelope from fd 3 at startup, closes the fd immediately
+6. Validates `version == 1` and `len(key) == 32`; falls through unchanged on any error
+7. Calls `DecryptingStore.SetSessionKey()` with the key bytes
+8. Calls `DecryptingStore.ClearSessionKey()` on exit
 
-**No-encryption case:** Write 0 bytes to the pipe. mail-session reads 0 bytes and does not set a session key.
+**No-encryption case:** fd 3 is absent. mail-session catches the EBADF error and uses the store unchanged.
 
 **Security properties:**
 - Key material never appears in argv or environment variables
