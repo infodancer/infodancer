@@ -1,5 +1,5 @@
 # Mail Queue Design
-*Last updated: 2026-03-03*
+*Last updated: 2026-03-04*
 
 ## Overview
 
@@ -12,12 +12,17 @@ drives retry and expiry.
 
 ```
 queue/
-  msg/{tld}/{domain}/{msgid}                   # message body (immutable, opaque bytes)
-  env/{tld}/{domain}/{localpart}@{msgid}.{n}   # one envelope file per recipient
+  msg/{tld}/{domain}/{msgid-hex}                   # message body (immutable, opaque bytes)
+  env/{tld}/{domain}/{localpart}@{msgid-hex}.{n}   # one envelope file per recipient
 ```
 
 Bodies are keyed by **sender domain**; envelopes are keyed by **recipient domain**.
 Both split first by TLD, then by the registrable domain portion.
+
+**Filesystem paths use only the hex left-hand part of the msgid** (see
+[Message-ID Format](#message-id-format) below). The full RFC 5322 msgid
+(`hex@sender-domain`) lives in the envelope `MSGID` field and the
+`Message-ID:` header written into the body file.
 
 ### Examples
 
@@ -56,8 +61,10 @@ and stored per-envelope. No generation needed at delivery time.
 `TTL` is the absolute expiry timestamp. One TTL per message; all envelopes for
 a given `MSGID` carry the same value.
 
-`MSGID` is a cryptographically random identifier, minimum 128 bits, base62 or
-hex encoded. Sequential or predictable IDs are not acceptable.
+`MSGID` is the full RFC 5322 message identifier: `{hex}@{sender-domain}`.
+The hex part is 128 bits of cryptographically random data. Sequential or
+predictable IDs are not acceptable. See [Message-ID Format](#message-id-format)
+for the rationale for the sender-domain component.
 
 ## TTL and Cleanup
 
@@ -163,6 +170,62 @@ Drives the retry loop. Responsibilities:
 
 The queue manager does not read message content. It operates only on envelopes
 and filesystem metadata.
+
+## Message-ID Format
+
+Message identifiers follow RFC 5322 §3.6.4: `{hex}@{sender-domain}`.
+
+### Why sender-domain, not smtpd-hostname
+
+Using the sender's domain (e.g. `example.com`) rather than the mail server
+hostname (e.g. `mail.infodancer.net`) in the Message-ID domain serves two
+goals:
+
+1. **Authentication.** The Message-ID ties the message to the sender's domain,
+   not to whoever is currently hosting their mail. This parallels how DKIM
+   uses `d=example.com` regardless of which server processed the message.
+
+2. **New-protocol retrieval.** In the store-and-notify delivery model, the
+   recipient's server fetches the body by looking up the domain in the
+   Message-ID. Using the sender's domain means the lookup resolves via the
+   sender domain's DNS, which is under the sender's administrative control.
+
+### Filesystem split
+
+The full msgid (`hex@sender-domain`) is used in the `MSGID` envelope field
+and the `Message-ID:` header injected into the body at queue-inject time.
+Filesystem paths use only the hex part to avoid confusing filename parsers
+that use `@` as a field separator:
+
+```
+Message-ID header:   <abc123def456@example.com>
+MSGID envelope field: abc123def456@example.com
+Body file path:       msg/com/example/abc123def456
+Envelope filename:    alice@abc123def456.001
+```
+
+### SRV-based retrieval and multi-server deployments
+
+The recipient server retrieves the body by resolving
+`_mail._tcp.{sender-domain} SRV` and connecting to the result.
+
+Unlike inbound MX records (where any listed host can independently accept a
+new message), a retrieval SRV should resolve to **one canonical retrieval
+endpoint** per domain — either a single server, or a hostname behind a load
+balancer or cluster VIP. A specific body exists on exactly one server;
+multiple SRV targets without coordination would force the recipient to try
+all of them to find it.
+
+For large deployments that run multiple outbound servers, acceptable
+approaches are:
+
+- A load-balancer VIP as the single SRV target, with sticky routing by
+  msgid hash behind it.
+- Consistent hashing on the hex part of the msgid to route retrieval
+  requests deterministically to the correct node.
+
+For most deployments the SRV target is simply `mail.example.com`, which is
+also the smtpd hostname — the distinction only matters at scale.
 
 ## VERP
 
