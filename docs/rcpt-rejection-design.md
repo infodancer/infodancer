@@ -164,6 +164,54 @@ Add a counter for `recipient_rejection_mode` outcomes:
 6. Tests: RCPT-mode unchanged behavior, DATA-mode rejection, auto-learn
    trigger, rate limiting, mixed valid/invalid recipients
 
+## Mandatory Addresses and Forwarding
+
+### RFC-required addresses
+
+RFC 5321 §4.5.1 requires every domain to accept mail for `postmaster@`.
+RFC 2142 additionally recommends `abuse@` for all internet-connected domains.
+These two addresses are the practical minimum for a mail server.
+
+### Interaction with spamtrap auto-learning
+
+The recipient validation check (`authRouter.UserExists()`) considers an
+address existing if it matches **any** of:
+
+1. A real mailbox in the passwd file
+2. An explicit forward rule (user-level, domain-level, or system default)
+3. A catchall (`*`) forward rule
+
+This means forwarded addresses and catch-all targets are **never** fed to
+the spamtrap learner — they are treated as valid recipients. This is correct:
+mail that would actually be forwarded and delivered is not a reliable spam
+signal.
+
+### Catch-all domains defeat spamtrap
+
+A domain with a catchall forward (`*:someone@domain`) treats every possible
+address as existing. The spamtrap auto-learn will never fire for that domain.
+Once real user addresses are provisioned, the catchall should be removed to
+enable spamtrap learning.
+
+### Recommended domain setup
+
+Every locally-served domain should have at minimum:
+
+```
+# In domains/{domain}/forwards
+postmaster:admin@example.com
+abuse:admin@example.com
+```
+
+These forwards ensure RFC compliance without a catchall. All other
+addresses that don't match a mailbox or explicit forward are considered
+nonexistent — eligible for spamtrap auto-learning in `data` mode.
+
+The **webadmin setup wizard** should create these forwards by default when
+a new domain is added, prompting the admin to choose the target mailbox.
+The webadmin dashboard should warn if any locally-served domain is missing
+`postmaster` or `abuse` destinations.
+
 ## Security Considerations
 
 - **data mode accepts more bytes from spammers.** The tradeoff is deliberate:
