@@ -64,13 +64,11 @@ DATA
 .
 ```
 
-After the final `.`, smtpd resolves recipients:
+After the final `.`, smtpd checks the single recipient:
 
-1. **All recipients invalid** → `550 No valid recipients`
-2. **Some valid, some invalid** → deliver to valid recipients, silently drop
-   invalid ones (no DSN — the sender already got `250` for RCPT TO, and
-   generating a bounce would violate the "never bounce" principle)
-3. **All valid** → normal delivery
+1. **Recipient invalid** → auto-learn as spam (if conditions met), then
+   `550 User unknown`
+2. **Recipient valid** → normal delivery
 
 ### Spamtrap Auto-Learning
 
@@ -118,12 +116,12 @@ false. This is sufficient because:
 
 #### Single-recipient enforcement
 
-smtpd currently enforces one recipient per message (`452 One recipient at a
-time`). In `data` mode this still applies — the difference is only whether
-the `550 User unknown` response happens at RCPT TO or after DATA.
-
-If single-recipient enforcement is relaxed in the future, `data` mode handles
-multiple recipients naturally (see the mixed valid/invalid case above).
+smtpd enforces exactly one recipient per message (`452 One recipient at a
+time` after the first RCPT TO). This is a permanent constraint, not subject
+to future relaxation. It simplifies `data` mode considerably: every message
+has exactly one recipient, so the post-DATA decision is binary — the
+recipient is either valid (deliver) or invalid (auto-learn + reject). There
+is no mixed valid/invalid case and no silent-drop scenario.
 
 #### Spam checking
 
@@ -132,7 +130,7 @@ mode, the scan result is available before the rejection decision:
 
 1. rspamd scans the message
 2. If rspamd says reject → reject (regardless of recipient validity)
-3. If recipients are all invalid → auto-learn as spam (if conditions met),
+3. If recipient is invalid → auto-learn as spam (if conditions met),
    then reject
 4. Otherwise → deliver normally
 
@@ -177,8 +175,7 @@ Add a counter for `recipient_rejection_mode` outcomes:
   toward classifying legitimate patterns as spam. The rate limit and
   rspamd-score-below-reject-threshold guard mitigate this. Monitoring the
   `spamtrap_autolearn_total` metric over time will surface anomalies.
-- **No DSN for invalid recipients in mixed delivery.** This is intentional.
-  Generating bounces for invalid recipients would create backscatter, which is
-  worse than silently dropping. The sender's MTA got `250` for RCPT TO, so it
-  considers delivery accepted. This is a known tradeoff in post-DATA rejection
-  designs.
+- **Single-recipient enforcement eliminates backscatter.** Because there is
+  always exactly one recipient, the post-DATA rejection is unambiguous — the
+  sending MTA receives the `550` directly and handles it. No bounce generation
+  is ever needed.
