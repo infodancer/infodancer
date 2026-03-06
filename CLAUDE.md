@@ -18,6 +18,21 @@ decisions that span multiple repos.
 | [next-gen-messaging-protocol.md](docs/next-gen-messaging-protocol.md) | Messaging protocol design |
 | [encryption-design.md](docs/encryption-design.md) | At-rest encryption: key model, delivery/retrieval points, fd key-passing convention |
 
+## Versioning Policy
+
+All infodancer repos follow a unified versioning scheme: `v0.N.X`.
+
+- **The minor version `N` is a human decision.** Never bump it without explicit approval.
+- **The patch version `X` is the only thing that gets auto-incremented** when tagging releases.
+- All repos in the mail stack should share the same minor version where possible.
+  Current target: `v0.1.x` for most repos; `msgstore` is an exception at `v0.2.x`
+  (legacy tags cached by the Go module proxy).
+- `messagedancer`, `scmp`, and `sdmp` stay at `v0.1.0` until further notice.
+- `gotemplate` and `infodancer` (this repo) are not versioned.
+- When tagging: use the next available patch for that repo (e.g., if auth is at
+  v0.1.12, the next tag is v0.1.13). Never skip numbers.
+- All repos stay at `v0.x.y` (pre-1.0) until production-ready.
+
 ## Critical Reading
 
 Before making changes to **infodancer/auth** or **infodancer/webauth**:
