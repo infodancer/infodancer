@@ -141,6 +141,62 @@ The following is already implemented and tested in `msgstore`:
 | fd 3 key reading | `mail-session/cmd/mail-session/main.go` | Plumbing only |
 | fd 3 pipe creation | `pop3d`, `imapd` subprocess spawn | Plumbing only |
 
+## Outbound Queue Encryption and DKIM Signing
+
+The outbound mail queue has a fundamentally different encryption model from the mailbox store.
+
+### Why the queue cannot use per-user keys
+
+Mailbox encryption protects the recipient's stored mail — encrypted with the recipient's public key, only they can decrypt. The server never holds private keys.
+
+The outbound queue is different: the server must read the message to deliver it. It cannot be encrypted with a key only the user holds. The server is the sender's delivery agent and needs cleartext access.
+
+### Domain key: signing and queue encryption
+
+Each sending domain has an Ed25519 keypair used for DKIM signing. The server legitimately holds this private key (it must sign on behalf of the domain). This same key material serves double duty:
+
+1. **DKIM signing** — authentication for SMTP receivers (RFC 6376)
+2. **Queue body encryption** — at-rest protection for outbound messages
+
+The Ed25519 signing key is converted to X25519 for encryption (a well-established derivation). One keypair per domain covers both uses.
+
+### Signing and encryption flow
+
+At **enqueue time** (smtpd has cleartext):
+
+1. Compute the DKIM-Signature header over the canonicalized message
+2. Store the DKIM-Signature value in the envelope file
+3. Encrypt the message body with the domain's X25519 public key (derived from the Ed25519 DKIM key)
+4. Write the encrypted body to the queue
+
+At **send time** (mail-remote):
+
+- **SMTP delivery:** decrypt body with domain private key, prepend stored DKIM-Signature header, send
+- **SDMP delivery:** decrypt body, send via SDMP (no DKIM needed)
+
+### Transport-dependent behavior
+
+| Submission | Delivery | DKIM signed? | Queue encrypted? |
+|------------|----------|-------------|-----------------|
+| SMTP (587) | SMTP     | Yes         | Yes (domain key) |
+| SMTP (587) | SDMP     | Signature stored but unused | Yes (domain key) |
+| SCMP       | SDMP     | No          | End-to-end encrypted by client |
+
+SCMP-submitted messages arrive already encrypted by the client. The server is a blind relay — it cannot read, sign, or re-encrypt the content. SCMP messages can only be delivered via SDMP to domains that support the new protocol.
+
+If a client needs to send to an SMTP-only domain, it submits via SMTP (port 587). The client checks SRV records at send time to determine transport availability; emergency fallback from SCMP to SMTP submission is possible but trades end-to-end encryption for deliverability (transport remains TLS-encrypted).
+
+### DKIM key management
+
+- One Ed25519 keypair per sending domain
+- Private key stored in domain configuration (alongside TLS certs, hostname, etc.)
+- Public key published in DNS: `selector._domainkey.example.com TXT "v=DKIM1; k=ed25519; p=<base64>"`
+- Selector name is configurable per domain
+
+### Relaying and ARC
+
+When relaying a message received via SDMP that must be delivered via SMTP (future federation scenario), the server signs with its own domain key. The From: header won't match the DKIM signing domain, so DMARC `dkim=` alignment fails. ARC (Authenticated Received Chain, RFC 8617) headers should be added to preserve the authentication chain through the relay.
+
 ## Open Questions
 
 - **Per-folder encryption:** Should only specific folders (e.g., INBOX, Sent) be encrypted, with others in plaintext for performance?
