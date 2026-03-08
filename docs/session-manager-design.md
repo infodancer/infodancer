@@ -77,10 +77,12 @@ DeliveryService RPCs to the appropriate per-user mail-session. Each proxied
 RPC includes the session token (via gRPC metadata) so the manager can route
 to the correct backend.
 
-Alternative: the session manager returns a direct connection endpoint (e.g. a
-forwarded unix socket over the network). This avoids proxying all traffic
-through the manager but adds complexity. **Decision deferred** — start with
-proxying, optimize if latency becomes an issue.
+The session manager proxies all RPCs rather than brokering direct connections.
+Direct connect would require per-session network endpoints (port-per-user
+doesn't scale) or multiplexing (which is just proxying with extra steps).
+Proxying keeps a single network endpoint, centralizes auth/logging/lifecycle,
+and gRPC streaming handles the throughput efficiently. If the manager ever
+becomes a bottleneck, the fix is sharding by user across multiple instances.
 
 ## mTLS for Inter-Host Auth
 
@@ -191,11 +193,6 @@ the DeliveryService directly. For each delivery, it:
 
 ## Open Questions
 
-- **Proxying vs direct connect**: should the session manager proxy all RPCs, or
-  should it return a connection endpoint and let protocol handlers connect
-  directly to per-user mail-session instances? Proxying is simpler but adds
-  latency; direct connect is faster but requires network-accessible per-session
-  endpoints.
 - **Session manager HA**: for high availability, can multiple session managers
   run on different storage hosts? This implies shared session state or
   sticky routing.
