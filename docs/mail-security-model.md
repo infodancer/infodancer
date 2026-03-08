@@ -1,7 +1,7 @@
 # Mail Server Security Model
 
 This document defines the privilege and process separation model for the
-infodancer mail server stack (smtpd, pop3d, imapd, mail-deliver, mail-session).
+infodancer mail server stack (smtpd, pop3d, imapd, mail-session).
 
 ## Design Principles
 
@@ -22,9 +22,9 @@ smtpd (nonroot, binds no privileged ports)
   │
   └── forks smtpd --protocol-handler (nonroot, handles SMTP conversation)
         │
-        │  validated envelope + message over pipe (see Pipe Protocol below)
+        │  delivery via gRPC to mail-session --mode=oneshot
         │
-        └── smtpd (parent dispatcher) forks mail-deliver (uid=recipient, gid=domain)
+        └── smtpd spawns mail-session (uid=recipient, gid=domain)
               │
               ├── rspamd/spam check (per-user/per-domain config)
               ├── sieve filtering
@@ -38,12 +38,13 @@ pop3d / imapd (nonroot, binds no privileged ports)
   │
   └── forks pop3d --protocol-handler / imapd --protocol-handler (nonroot)
         │
-        │  auth success signal + authenticated user identity over pipe
+        │  auth success signal over pipe (fd 4)
         │
-        └── parent dispatcher forks mail-session (uid=user, gid=domain)
+        └── parent dispatcher forks mail-session --mode=daemon (uid=user, gid=domain)
+              │  gRPC on unix domain socket (socket path sent to handler via fd 5)
               │
               └── long-lived process, handles LIST/RETR/DELE or IMAP commands
-                  over pipe back to protocol handler for the session duration
+                  via gRPC for the session duration
 ```
 
 ### Port binding
@@ -93,30 +94,27 @@ domains/{domain}/users/{user}/        drwx------  {user-uid}:{domain-gid}
 The setgid bit on domain and users directories ensures new files inherit the
 domain gid. User maildirs are `700` — only the user uid can read them.
 
-## Pipe Protocol
+## Inter-Process Communication
 
-The pipe between the protocol handler and the parent dispatcher is a simple
-line-oriented text protocol. This is a trust boundary; the dispatcher must
-treat all input as untrusted.
+### gRPC transport (protocol handler ↔ mail-session)
 
-### Envelope format (smtpd-protocol → dispatcher)
+All communication between protocol handlers and mail-session uses protobuf/gRPC
+over unix domain sockets. mail-session exposes four gRPC services:
 
-```
-ENVELOPE 1\r\n
-FROM:<sender@example.com>\r\n
-TO:<recipient@domain.com>\r\n
-TO:<recipient2@domain2.com>\r\n
-END\r\n
-<raw RFC 5321 message bytes>
-<EOF>
-```
+- **MailboxService** — message retrieval and management (List, Stat, Fetch,
+  Append, Copy, Move, SetFlags, Expunge, Rescan, Delete, Undelete, Commit)
+- **FolderService** — folder management (ListFolders, CreateFolder,
+  DeleteFolder, RenameFolder)
+- **DeliveryService** — inbound delivery with structured results (replaces
+  mail-deliver)
+- **WatchService** — server-streaming notifications for IMAP IDLE
 
-- `ENVELOPE` line includes a version number (currently `1`)
-- Multiple `TO` lines for multiple recipients
-- The dispatcher performs uid/gid lookup for each recipient — the protocol
-  handler only validates that recipients exist (for 550 responses during SMTP),
-  it never sees uids
-- The raw message follows immediately after `END\r\n` and is terminated by EOF
+The socket path is created by the parent dispatcher in a temporary directory
+with mode 0600 and communicated to the protocol handler via fd 5.
+
+RPCs are stateless — each request includes the folder name. The gRPC server
+calls `sess.Select()` before each folder-scoped operation. IMAP's stateful
+SELECT is handled by the imapd protocol translator.
 
 ### Auth signal format (pop3d/imapd-protocol → dispatcher)
 
@@ -126,11 +124,21 @@ USER:<localpart@domain>\r\n
 END\r\n
 ```
 
-- Sent once, after the protocol handler has successfully authenticated the user
-- The dispatcher looks up the uid/gid for the authenticated user and forks
-  `mail-session` with those credentials
-- The protocol handler then communicates with `mail-session` for the remainder
-  of the session via the dispatcher-managed pipes
+- Sent once over the auth pipe (fd 4), after the protocol handler has
+  successfully authenticated the user
+- The dispatcher looks up the uid/gid for the authenticated user and spawns
+  `mail-session --mode=daemon` with those credentials
+- mail-session writes `READY\n` to stdout when the gRPC socket is listening
+- The dispatcher writes the socket path to fd 5, enabling the protocol handler
+  to dial gRPC
+
+### fd layout in protocol-handler subprocesses
+
+```
+fd 3  TCP socket (from listener)
+fd 4  write-only: auth signal → dispatcher
+fd 5  read-only:  gRPC socket path from dispatcher
+```
 
 ## Process Responsibilities
 
@@ -138,9 +146,9 @@ END\r\n
 
 - Bind sockets (unprivileged ports via Docker mapping)
 - Fork protocol handler subprocesses (`--protocol-handler` subcommand)
-- Receive completed envelopes or auth signals from protocol handlers over pipe
+- Receive auth signals from protocol handlers over pipe (fd 4)
 - Look up recipient/user uid and domain gid from domain config and passwd
-- Fork `mail-deliver` or `mail-session` with the correct credentials
+- Spawn `mail-session` with the correct credentials and gRPC socket
 - Never touch mail data directly
 
 ### smtpd --protocol-handler / pop3d --protocol-handler / imapd --protocol-handler
@@ -149,27 +157,21 @@ END\r\n
 - Validate recipient existence (SMTP 550) and relay policy
 - Do NOT resolve or handle uids — pass only addresses to the dispatcher
 - Do NOT access mail data directly
-- Write completed envelope to parent over pipe; read delivery result
-
-### mail-deliver (own repo: infodancer/mail-deliver)
-
-- Spawned by dispatcher as `uid=recipient-user, gid=domain`
-- Receives envelope and raw message on stdin
-- Loads per-user and per-domain spam/AV configuration
-- Runs rspamd check with that configuration
-- Runs user's sieve script (if present)
-- Writes message to user's maildir
-- Exits 0 on success, non-zero on failure with a reason code on stderr
-- Never opens a network connection except to rspamd
+- For SMTP: deliver messages via gRPC DeliveryService to mail-session
+- For POP3/IMAP: access mailbox via gRPC MailboxService/FolderService
 
 ### mail-session (own repo: infodancer/mail-session)
 
-- Spawned by dispatcher as `uid=user, gid=domain` after successful auth
-- Long-lived for the duration of the authenticated session
-- Communicates with the protocol handler over pipes managed by the dispatcher
-- Handles maildir operations: list, fetch, delete, flag
-- Implements the storage side of the retrieval protocol
-- Exits when the session ends or the pipe closes
+- Spawned by dispatcher as `uid=user, gid=domain`
+- Operates in two modes:
+  - **daemon** (POP3/IMAP): long-lived, serves gRPC for the authenticated
+    session duration; idle-reaped after configurable timeout
+  - **oneshot** (SMTP delivery): handles one delivery via gRPC DeliveryService,
+    then exits
+- Handles maildir operations: list, fetch, delete, flag, append, move, copy
+- Handles inbound delivery: rspamd check, sieve filtering, maildir write
+- Writes `READY\n` to stdout when the gRPC socket is listening
+- Exits when idle timeout fires or the client disconnects
 
 ### webadmin (infodancer/webadmin)
 
@@ -184,13 +186,13 @@ END\r\n
 
 ## Spam and Content Filtering
 
-Spam checking and content filtering occur inside `mail-deliver`, after privilege
-drop to the recipient uid. This placement:
+Spam checking and content filtering occur inside `mail-session` (oneshot
+delivery mode), after privilege drop to the recipient uid. This placement:
 
 - Allows per-user spam configuration (threshold, allowlists, blocklists)
 - Allows per-domain spam configuration as a fallback
 - Ensures a compromised protocol handler cannot suppress spam scanning
-- Keeps `mail-deliver` as the single policy enforcement point for inbound mail
+- Keeps `mail-session` as the single policy enforcement point for inbound mail
 
 Configuration lookup order:
 1. User-level config in `domains/{domain}/users/{user}/spam.toml`
@@ -204,8 +206,8 @@ Configuration lookup order:
 | Compromised SMTP protocol handler reads mail | Protocol handler has no filesystem access to mail data |
 | Compromised delivery process reads other users' mail | Each delivery runs as the recipient uid; other users' dirs are `700` |
 | Cross-domain mail access | Domain dirs are `drwxr-s---` with domain gid; users outside the domain have no gid membership |
-| Sieve script escapes to filesystem | Sieve runs inside mail-deliver already dropped to user uid; can only write to that user's maildir |
-| Spam filter bypass via protocol manipulation | Spam check runs in mail-deliver after the protocol boundary; protocol handler cannot influence it |
+| Sieve script escapes to filesystem | Sieve runs inside mail-session already dropped to user uid; can only write to that user's maildir |
+| Spam filter bypass via protocol manipulation | Spam check runs in mail-session after the gRPC boundary; protocol handler cannot influence it |
 | Uid reuse after user deletion | Monotonic counter never decrements; deleted uids are never reassigned |
 
 ## Repository Map
@@ -215,8 +217,7 @@ Configuration lookup order:
 | `infodancer/smtpd` | SMTP listener + protocol handler subcommand |
 | `infodancer/pop3d` | POP3 listener + protocol handler subcommand |
 | `infodancer/imapd` | IMAP listener + protocol handler subcommand |
-| `infodancer/mail-deliver` | Delivery agent: spam, sieve, maildir write |
-| `infodancer/mail-session` | Retrieval agent: maildir read for authenticated sessions |
+| `infodancer/mail-session` | gRPC mailbox service: delivery, retrieval, folder management |
 | `infodancer/webadmin` | Admin UI: domain/user management, uid allocation |
 | `infodancer/auth` | Authentication: passwd backend, argon2id hashing |
 | `infodancer/msgstore` | Storage abstraction (used by mail-session) |
