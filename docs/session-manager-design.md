@@ -191,10 +191,68 @@ the DeliveryService directly. For each delivery, it:
 | Inter-host trust | mTLS ensures only authorized protocol handlers can connect |
 | Blast radius of compromise | Protocol handler: no mail access. Session manager: can spawn sessions but doesn't hold mail data. Individual mail-session: one user only. |
 
+## High Availability
+
+The session manager is stateless — its only state is an in-memory session
+registry (which mail-session processes are running, who's connected). This
+makes HA straightforward: there is no distributed state to coordinate.
+
+### Process failure
+
+Systemd restart. Session manager comes back with an empty registry. Protocol
+handlers reconnect, re-authenticate, get new mail-session instances. Users see
+a brief interruption — IMAP clients reconnect automatically, SMTP deliveries
+queue and retry. No data loss. Same failure model as any stateless reverse
+proxy.
+
+### Storage availability
+
+The session manager is pinned to the storage host because mail-session needs
+local (or NFS-mounted) filesystem access with uid/gid permissions. Three
+deployment models, in order of complexity:
+
+**Domain sharding (no replication)**
+
+```
+session-manager-1 (host-a) ── domains: example.com
+session-manager-2 (host-b) ── domains: example.org
+```
+
+Protocol handlers route by domain. If host-a dies, example.com users are down
+until recovery. Simple, scales linearly. Good enough for most self-hosted
+deployments with RAID/ZFS underneath.
+
+**Active-passive with shared NFS storage**
+
+```
+session-manager (active, host-a)  ──┐
+                                    ├── NFS mount ── maildirs
+session-manager (standby, host-b) ──┘
+```
+
+Maildir is NFS-safe by design: one file per message, no shared index files, no
+file locking. Delivery uses `rename()` from `tmp/` to `new/`, which is atomic
+on NFS. mail-session's operations — `readdir()`, `open()/read()`,
+`rename()`, `unlink()` — are all NFS-safe. The only concern is `readdir()`
+latency on large mailboxes over NFS, which is a performance issue (mitigated by
+session reuse and caching), not a correctness issue.
+
+Failover via keepalived or DNS. The standby session manager starts up and
+spawns fresh sessions — no state to transfer.
+
+**Active-passive with block replication**
+
+DRBD or ZFS send/recv for storage replication. Same failover model as NFS but
+with local-disk performance. More operational complexity.
+
+### What not to build
+
+Application-level mail replication (Dovecot dsync style) is extremely complex
+and unnecessary. Storage redundancy belongs in the infrastructure layer. The
+session manager's statelessness means the application layer doesn't need to
+participate in failover — it just starts up and serves.
+
 ## Open Questions
 
-- **Session manager HA**: for high availability, can multiple session managers
-  run on different storage hosts? This implies shared session state or
-  sticky routing.
 - **Delivery batching**: should the session manager pool oneshot mail-session
   instances for high-volume delivery, or is spawn-per-delivery sufficient?
