@@ -1,0 +1,203 @@
+# Session Manager Design
+
+## Problem
+
+The current architecture spawns mail-session locally via `SysProcAttr.Credential`
+for uid/gid isolation. This works on a single host but prevents network-separated
+deployments where protocol handlers (smtpd, imapd, pop3d) run on different hosts
+from the mail store.
+
+Additionally, the dispatcher logic — auth signal handling, credential lookup,
+mail-session lifecycle management — is duplicated across all three daemons.
+
+## Decision
+
+Introduce a **session manager** service that centralizes authentication and
+per-user mail-session process management. Protocol handlers become pure protocol
+translators with no auth or process spawning logic.
+
+Per-user uid isolation is preserved: the session manager spawns individual
+mail-session processes with `SysProcAttr.Credential`, exactly as the current
+dispatchers do.
+
+## Architecture
+
+```
+                         network (gRPC + mTLS)
+smtpd ──┐                                      ┌── mail-session (uid=alice)
+imapd ──┼──────────────────► session-manager ───┤       unix socket
+pop3d ──┘                    (auth + spawn)     └── mail-session (uid=bob)
+scmp  ──┘                                              unix socket
+```
+
+### Single-host deployment (backward compatible)
+
+Protocol handlers can still spawn mail-session locally when no session manager
+is configured. The session manager is optional — single-host deployments work
+exactly as they do today.
+
+### Multi-host deployment
+
+Protocol handlers connect to a remote session manager over gRPC with mTLS.
+The session manager runs on the mail storage host(s) alongside the maildirs.
+
+## Session Manager Responsibilities
+
+1. **Authentication** — accepts credentials from protocol handlers, validates
+   against the auth backend (passwd, LDAP, etc.)
+2. **Credential lookup** — resolves uid, gid, basePath, store type from
+   per-domain config and passwd files
+3. **Process spawning** — starts mail-session with the correct uid/gid via
+   `SysProcAttr.Credential`
+4. **Session multiplexing** — routes gRPC RPCs from protocol handlers to the
+   correct per-user mail-session over local unix sockets
+5. **Lifecycle management** — tracks active sessions, idle reaping, connection
+   counting
+6. **Delivery routing** — for SMTP delivery, spawns mail-session in oneshot
+   mode with the recipient's uid/gid
+
+## gRPC Service Design
+
+### SessionService (new, on the session manager)
+
+```protobuf
+service SessionService {
+  // Authenticate and establish a session. Returns a session token.
+  rpc Login(LoginRequest) returns (LoginResponse);
+
+  // End a session. Triggers mail-session cleanup.
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+}
+```
+
+### Proxied services
+
+The session manager proxies MailboxService, FolderService, WatchService, and
+DeliveryService RPCs to the appropriate per-user mail-session. Each proxied
+RPC includes the session token (via gRPC metadata) so the manager can route
+to the correct backend.
+
+Alternative: the session manager returns a direct connection endpoint (e.g. a
+forwarded unix socket over the network). This avoids proxying all traffic
+through the manager but adds complexity. **Decision deferred** — start with
+proxying, optimize if latency becomes an issue.
+
+## mTLS for Inter-Host Auth
+
+Protocol handler → session manager connections use mTLS:
+
+- The session manager has a CA that issues client certificates to authorized
+  protocol handlers
+- Protocol handlers present their client cert on connection
+- The session manager verifies the cert against its CA before accepting any RPCs
+- This authenticates the *service* (this is a legitimate protocol handler), not
+  the *user* (that's what Login() does)
+
+For single-host deployments using unix sockets, mTLS is unnecessary — socket
+file permissions provide access control.
+
+## Process Lifecycle
+
+### Session reuse
+
+When a protocol handler calls Login() for a user who already has an active
+mail-session (e.g. multiple IMAP connections), the session manager reuses the
+existing mail-session process rather than spawning a new one. Reference counting
+tracks how many protocol handler connections are using each session.
+
+### Idle reaping
+
+When the last connection to a mail-session disconnects, an idle timer starts.
+If no new connection arrives before the timer fires, the session manager sends
+SIGTERM to the mail-session process and cleans up the unix socket.
+
+Default idle timeout: 5 minutes (configurable). This keeps sessions warm for
+users who reconnect frequently (e.g. IMAP clients that poll) without leaking
+processes for abandoned sessions.
+
+### Delivery (oneshot)
+
+SMTP delivery doesn't go through Login(). Instead, the session manager exposes
+the DeliveryService directly. For each delivery, it:
+
+1. Looks up the recipient's uid/gid
+2. Spawns mail-session in oneshot mode with those credentials
+3. Proxies the Deliver RPC
+4. Reaps the process after the RPC completes
+
+## What Moves Where
+
+### Out of protocol handlers (smtpd, imapd, pop3d)
+
+- Authentication (AuthRouter, auth agent setup)
+- Credential lookup (lookupCredentials, lookupMailSessionParams)
+- mail-session process spawning (spawnGrpcMailSession, dispatchGrpcSession)
+- Domain provider setup (for auth routing)
+
+### Into session manager
+
+- All of the above
+- Session registry (map of active sessions by user)
+- Connection reference counting
+- Idle reaper
+
+### Stays in protocol handlers
+
+- Network protocol handling (SMTP, IMAP, POP3 conversations)
+- TLS termination for client connections
+- Protocol-specific logic (SMTP relay policy, IMAP capability negotiation)
+- gRPC client to session manager
+
+## Migration Path
+
+### Phase 1: Extract session manager binary
+
+- New repo: `infodancer/session-manager`
+- Consolidate dispatcher logic from smtpd, imapd, pop3d
+- Session manager listens on a unix socket (same-host only)
+- Protocol handlers configured with `session_manager_socket` instead of
+  `mail_session` path
+- All three daemons stop spawning mail-session directly
+
+### Phase 2: Network transport
+
+- Add mTLS support to session manager
+- Protocol handlers configured with `session_manager_address` (host:port)
+  and client certificate paths
+- Session manager verifies client certs
+- Test multi-host deployments
+
+### Phase 3: Session reuse
+
+- Session registry with reference counting
+- Idle reaper with configurable timeout
+- Connection migration (client reconnects reuse existing session)
+
+### Phase 4: scmp native client
+
+- scmp connects directly to the session manager (it's already gRPC-native)
+- No protocol translation needed — scmp speaks the same gRPC services
+
+## Security Properties
+
+| Property | How preserved |
+|----------|--------------|
+| Per-user uid isolation | Session manager spawns mail-session with SysProcAttr.Credential |
+| No network process touches mail | Protocol handlers connect to session manager, not to maildirs |
+| Auth separated from mail access | Session manager has auth backends; mail-session has maildir access |
+| Credential exposure minimized | Protocol handlers never see passwd files; session manager validates and discards |
+| Inter-host trust | mTLS ensures only authorized protocol handlers can connect |
+| Blast radius of compromise | Protocol handler: no mail access. Session manager: can spawn sessions but doesn't hold mail data. Individual mail-session: one user only. |
+
+## Open Questions
+
+- **Proxying vs direct connect**: should the session manager proxy all RPCs, or
+  should it return a connection endpoint and let protocol handlers connect
+  directly to per-user mail-session instances? Proxying is simpler but adds
+  latency; direct connect is faster but requires network-accessible per-session
+  endpoints.
+- **Session manager HA**: for high availability, can multiple session managers
+  run on different storage hosts? This implies shared session state or
+  sticky routing.
+- **Delivery batching**: should the session manager pool oneshot mail-session
+  instances for high-volume delivery, or is spawn-per-delivery sufficient?
