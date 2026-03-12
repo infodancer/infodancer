@@ -32,18 +32,17 @@ mail-remote currently exits with a status code (0 = success, 75 = temp fail,
 generation requires the SMTP diagnostic code, enhanced status code, and remote
 MTA identity.
 
-**Result file**: queue-manager sets `MAIL_REMOTE_RESULT_FILE` in mail-remote's
-environment, pointing to a temporary file. mail-remote writes a JSON array of
-per-recipient results before exiting:
+**Stdout pipe**: mail-remote writes a JSON array of per-recipient results to
+stdout before exiting. queue-manager captures stdout via pipe (`cmd.Stdout`
+set to a buffer). slog diagnostic output goes to stderr as usual.
 
 ```json
 [
   {
     "envelope": "/queue/env/com/gmail/alice@abc123.0.delivering",
-    "status": "5.1.1",
+    "status": "perm_fail",
     "smtp_code": 550,
-    "diagnostic": "550 5.1.1 The email account that you tried to reach does not exist.",
-    "remote_mta": "gmail-smtp-in.l.google.com"
+    "diagnostic": "RCPT TO <alice@gmail.com>: 550 5.1.1 The email account does not exist."
   }
 ]
 ```
@@ -51,17 +50,17 @@ per-recipient results before exiting:
 | Field         | Type   | Description |
 |---------------|--------|-------------|
 | `envelope`    | string | Envelope file path (as passed to mail-remote) |
-| `status`      | string | RFC 3463 enhanced status code (e.g., `5.1.1`) |
-| `smtp_code`   | int    | Three-digit SMTP reply code (e.g., 550) |
-| `diagnostic`  | string | Full SMTP reply text from the remote server |
-| `remote_mta`  | string | Hostname of the MX that issued the reply |
+| `status`      | string | Outcome: `"delivered"`, `"perm_fail"`, or `"temp_fail"` |
+| `smtp_code`   | int    | Three-digit SMTP reply code; 0 if no SMTP response (connection failure) |
+| `diagnostic`  | string | Full error string including SMTP reply text |
 
-On success, `status` is `2.0.0` and `smtp_code` is 250. On connection failure
-(no SMTP reply available), `smtp_code` is 0, `diagnostic` contains the Go error
-string, and `remote_mta` is empty.
+On success, `status` is `"delivered"` and `smtp_code` is 250. On connection
+failure (no SMTP reply available), `smtp_code` is 0 and `diagnostic` contains
+the Go error string.
 
-If `MAIL_REMOTE_RESULT_FILE` is not set, mail-remote behaves exactly as it does
-today. The result file is opt-in — no change to the standalone CLI interface.
+If nothing reads stdout (standalone CLI use), the output is harmlessly
+discarded. queue-manager gracefully handles missing or malformed JSON by
+falling back to exit-code-only logging.
 
 ### DSN generation
 
@@ -230,35 +229,32 @@ warning.
 ### Delivery flow (updated)
 
 DSNs are generated on any permanent delivery failure — both TTL expiry and
-mid-queue 5xx rejections. The result file is always requested.
+mid-queue 5xx rejections. Results are always captured via stdout pipe.
 
 ```
 queue-manager scan pass
   │
-  ├─ create result file (tmpfile)
-  ├─ set MAIL_REMOTE_RESULT_FILE in env
-  │
   ├─ envelope TTL expired?
-  │    ├─ invoke mail-remote --final
+  │    ├─ invoke mail-remote --final (capture stdout)
   │    └─ delete envelope regardless of outcome
   │
   ├─ envelope ready for retry?
-  │    └─ invoke mail-remote (normal)
+  │    └─ invoke mail-remote (capture stdout)
   │
-  ├─ read result file
+  ├─ parse JSON results from stdout
+  ├─ log per-recipient delivery outcomes
+  ├─ log domain summary (delivered/perm_fail/temp_fail/deferred)
   ├─ for each recipient with permanent failure (5xx):
   │    ├─ read ORIGIN from envelope
   │    ├─ read original message headers from body file
   │    ├─ render DSN from template + result data
   │    └─ deliver DSN via session-manager DeliveryService
-  │
-  └─ delete result file
 ```
 
 For TTL expiry, the envelope is deleted unconditionally (existing behavior).
 For mid-queue permanent failures, mail-remote already deletes the envelope
-(exit code 69). In both cases, the DSN is generated after mail-remote exits
-and before the result file is cleaned up.
+(exit code 69). In both cases, the DSN is generated after mail-remote exits,
+using the results captured from stdout.
 
 ## Configuration
 
@@ -293,10 +289,10 @@ smtpd's delivery path.
 
 ### Phase 1: mail-remote result reporting
 
-- Add result file output to mail-remote (opt-in via `MAIL_REMOTE_RESULT_FILE`)
-- Define the `RecipientResult` JSON struct
-- Populate from existing per-recipient error data in `deliver()`
-- No behavior change when env var is absent
+- Write per-recipient JSON results to stdout (always; harmlessly discarded if unread)
+- Define the `recipientResult` JSON struct: envelope, status, smtp_code, diagnostic
+- Add `SMTPCode()` helper to extract SMTP reply code from error chain
+- queue-manager captures stdout via pipe, logs results, tallies domain summaries
 
 ### Phase 2: DSN generation in queue-manager
 
