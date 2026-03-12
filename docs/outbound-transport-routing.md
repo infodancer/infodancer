@@ -115,8 +115,7 @@ queue-manager                          mail-remote
      |  4. Load {domain-base}/{sender}/     |
      |     config.toml → [outbound]         |
      |  5. If strategy == "smarthost":      |
-     |     set MAIL_REMOTE_PASSWORD env     |
-     |     pass --smarthost, --smarthost-user|
+     |     write JSON config to stdin      |
      |  6. Invoke mail-remote               |
      |     ─────────────────────────────────>
      |                                      |
@@ -181,22 +180,28 @@ Passwords are read from files, not environment variables or TOML, because:
 - File-based secrets integrate well with Docker secrets, systemd credentials,
   and Ansible vaults.
 
-queue-manager reads the password file and sets `MAIL_REMOTE_PASSWORD` in the
-subprocess environment for each mail-remote invocation. mail-remote already
-reads this env var — no changes needed.
+queue-manager reads the password file, serializes the full outbound config
+(strategy, smarthost, user, password) as JSON, and writes it to mail-remote's
+stdin. This avoids environment variables, which are visible in
+`/proc/pid/environ`.
 
 ```go
-cmd.Env = append(os.Environ(), "MAIL_REMOTE_PASSWORD="+password)
+stdinJSON, _ := json.Marshal(outboundConfig)
+cmd.Stdin = bytes.NewReader(stdinJSON)
+// mail-remote reads JSON from stdin, writes results to stdout
 ```
 
-The password file should be mode 0600, owned by the queue-manager process
-user.
+The password file should be mode 0600 or 0640 (group-readable by domain
+gid), owned by root.
 
 ### Changes to mail-remote
 
-None. mail-remote already supports `--smarthost`, `--smarthost-user`, and
-`MAIL_REMOTE_PASSWORD`. When these are absent, it uses direct MX delivery.
-queue-manager simply passes or omits them per invocation.
+mail-remote reads JSON outbound config from stdin when it's a pipe.
+CLI flags `--smarthost`/`--smarthost-user` remain as manual overrides
+and take precedence over stdin config. Falls back to `MAIL_REMOTE_PASSWORD`
+env var for the password when stdin has none.
+
+Protocol: stdin = JSON config, stdout = JSON results, stderr = slog.
 
 ### Changes to `buildArgs` in scheduler.go
 
@@ -210,10 +215,7 @@ func (s *Scheduler) buildArgs(bodyPath string, envPaths []string, final bool, ou
     if s.cfg.ConfigPath != "" {
         args = append(args, "--config", s.cfg.ConfigPath)
     }
-    if outbound.Strategy == "smarthost" {
-        args = append(args, "--smarthost", outbound.Smarthost)
-        args = append(args, "--smarthost-user", outbound.SmarthostUser)
-    }
+    // Outbound config (smarthost, password) is passed via stdin JSON.
     if final {
         args = append(args, "--final")
     }
@@ -275,10 +277,9 @@ This means:
 
 - **Password files** must be mode 0600, owned by the queue-manager user.
   queue-manager should warn (not fail) if permissions are too open.
-- **MAIL_REMOTE_PASSWORD** is passed per-invocation in the subprocess
-  environment, not inherited from queue-manager's own environment. Each
-  mail-remote process sees only the password for the sender domain it is
-  delivering.
+- **Outbound config via stdin**: smarthost credentials are passed as JSON on
+  stdin, not environment variables. Stdin pipes are not visible in
+  `/proc/pid/environ` and are cleaned up when the process exits.
 - **Config file permissions**: `config.toml` files contain smarthost addresses
   and usernames but not passwords. Standard domain-dir permissions apply.
 
