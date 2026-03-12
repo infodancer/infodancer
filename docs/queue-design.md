@@ -46,25 +46,31 @@ content, only pass bytes.
 
 ### Envelope file
 
-Plain text, one field per line:
+JSON, one object per file:
 
+```json
+{
+  "ttl": "2026-03-07T10:00:00Z",
+  "created": "2026-02-28T10:00:00Z",
+  "sender": "bounces+alice=gmail.com@origin.example.com",
+  "recipient": "alice@gmail.com",
+  "msgid": "abc123def456789@example.com",
+  "origin": "user@example.com"
+}
 ```
-TTL 2026-03-07T10:00:00Z
-SENDER bounces+alice=gmail.com@origin.example.com
-RECIPIENT alice@gmail.com
-MSGID abc123def456789
-```
 
-`SENDER` is the VERP-encoded `MAIL FROM` address, computed at queue-inject time
-and stored per-envelope. No generation needed at delivery time.
+| Field       | Description |
+|-------------|-------------|
+| `ttl`       | Absolute expiry timestamp (RFC 3339). One TTL per message; all envelopes for a given `msgid` carry the same value. |
+| `created`   | Queue-inject timestamp (RFC 3339). Used for SDMP notification `timestamp` and DSN `Arrival-Date`. Not used for backoff (mtime + TTL is cheaper). |
+| `sender`    | VERP-encoded `MAIL FROM` address, computed at queue-inject time. No generation needed at delivery time. |
+| `recipient` | `RCPT TO` forward-path for this envelope. |
+| `msgid`     | Full RFC 5322 message identifier: `{hex}@{sender-domain}`. The hex part is 128 bits of cryptographically random data. Sequential or predictable IDs are not acceptable. See [Message-ID Format](#message-id-format) for the rationale for the sender-domain component. |
+| `origin`    | Authenticated submitter's address (`MAIL FROM` before VERP rewriting). Used by queue-manager for DSN delivery. Not transmitted to the remote server. |
 
-`TTL` is the absolute expiry timestamp. One TTL per message; all envelopes for
-a given `MSGID` carry the same value.
-
-`MSGID` is the full RFC 5322 message identifier: `{hex}@{sender-domain}`.
-The hex part is 128 bits of cryptographically random data. Sequential or
-predictable IDs are not acceptable. See [Message-ID Format](#message-id-format)
-for the rationale for the sender-domain component.
+Envelope files are written atomically (tmp file → rename) by smtpd at
+queue-inject time. The JSON format allows adding fields without parsing code
+changes — `json.Unmarshal` into a struct ignores unknown fields.
 
 ## TTL and Cleanup
 
@@ -92,10 +98,14 @@ that transition.
 
 The queue manager uses filesystem timestamps as delivery timing hints — no
 explicit retry counter or next-retry timestamp is stored in the envelope.
+Readiness is determined by `stat()` alone, without opening or parsing the
+envelope file.
 
-- **`msg/` mtime**: set at queue-inject time; represents message age.
 - **`env/` mtime**: updated by the delivery binary on each attempt; represents
   time of last delivery attempt.
+- **Message age**: derived from `ttl - message_ttl` (configured default TTL).
+  The `created` envelope field exists for contexts that parse the envelope
+  anyway (DSN generation, SDMP notifications) but is not used for backoff.
 
 The queue manager computes the next eligible delivery time as:
 
