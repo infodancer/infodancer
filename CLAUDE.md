@@ -17,6 +17,8 @@ decisions that span multiple repos.
 | [federated-identity-stack.md](docs/federated-identity-stack.md) | Identity federation overview |
 | [next-gen-messaging-protocol.md](docs/next-gen-messaging-protocol.md) | Messaging protocol design |
 | [encryption-design.md](docs/encryption-design.md) | At-rest encryption: key model, delivery/retrieval points, fd key-passing convention |
+| [deployment-filesystem.md](docs/deployment-filesystem.md) | Config/data filesystem split, Docker volume strategy, path resolution |
+| [outbound-transport-routing.md](docs/outbound-transport-routing.md) | Per-sender-domain delivery transport routing (direct MX vs smarthost) |
 
 ## Versioning Policy
 
