@@ -181,7 +181,7 @@ Passwords are read from files, not environment variables or TOML, because:
   and Ansible vaults.
 
 queue-manager reads the password file, serializes the full outbound config
-(strategy, smarthost, user, password) as JSON, and writes it to mail-remote's
+(strategy, hostname, smarthost, user, password) as JSON, and writes it to mail-remote's
 stdin. This avoids environment variables, which are visible in
 `/proc/pid/environ`.
 
@@ -215,7 +215,7 @@ func (s *Scheduler) buildArgs(bodyPath string, envPaths []string, final bool, ou
     if s.cfg.ConfigPath != "" {
         args = append(args, "--config", s.cfg.ConfigPath)
     }
-    // Outbound config (smarthost, password) is passed via stdin JSON.
+    // Outbound config (hostname, smarthost, password) is passed via stdin JSON.
     if final {
         args = append(args, "--final")
     }
