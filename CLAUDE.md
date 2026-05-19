@@ -19,6 +19,7 @@ decisions that span multiple repos.
 | [encryption-design.md](docs/encryption-design.md) | At-rest encryption: key model, delivery/retrieval points, fd key-passing convention |
 | [deployment-filesystem.md](docs/deployment-filesystem.md) | Config/data filesystem split, Docker volume strategy, path resolution |
 | [outbound-transport-routing.md](docs/outbound-transport-routing.md) | Per-sender-domain delivery transport routing (direct MX vs smarthost) |
+| [web-portfolio-architecture.md](docs/web-portfolio-architecture.md) | Web-stack layering: reusable feature modules (faq, planned blog), shared `infodancer/ui` design tokens, consumer-site shell pattern, Hugo retirement direction |
 
 ## Versioning Policy
 
