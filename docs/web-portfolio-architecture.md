@@ -87,7 +87,7 @@ Modules in the portfolio:
 - **timeline** — Interactive event timeline. Full-UI. Pre-release. PostgreSQL-backed, htmx-driven, supports massive event counts. CUE-based wire format. Mountable into a host site once the integration surface is finalized.
 - **contact** — Contact form. Handler-only. In production at amyhunter.org. SQLite/Postgres storage, SMTP delivery, pluggable mailer interface.
 - **newsletter** — Newsletter subscribe handler. Handler-only. In production at amyhunter.org. SQLite/Postgres storage, Listmonk and Buttondown adapters, composable anti-bot middleware.
-- **blog** — Blog / lightweight CMS. Full-UI. Planned. Replaces Hugo for narrative content authoring across the portfolio. Will share token vocabulary with faq, and likely some Layer 0 packages (markdown rendering, slug handling, tag UI).
+- **blog** — Blog / lightweight CMS. Full-UI. **Planned and on the near-term critical path.** The immediate driver is osg's session-notes workflow: GitHub + Hugo is ergonomic for someone who lives in software dev, but it's a hard barrier for the campaign players who would otherwise contribute session reports from their character's POV. User adoption is gated on having a proper, user-friendly authoring CMS — and that CMS is blog-shaped. The blog module's first job is to host osg's session notes; existing markdown bundles migrate into it gradually after launch. Shares token vocabulary with faq, and likely some Layer 0 packages (markdown rendering, slug handling, tag UI) once duplication is honest.
 
 Other modules will likely emerge from the consumer sites once the pattern proves itself. Event / session tracking (osg), namegen (osg), and several of the surfaces in the legacy Java archive (older prototypes of forum, profile, menu, and feed-aggregation ideas) are plausible Layer 2 candidates as duplication appears.
 
@@ -100,7 +100,7 @@ Each consumer keeps its own database and its own deployment. Modules can share a
 Current and planned consumer sites:
 
 - **speculativefiction.org** — Active. Go html/template, dynamic-heavy. Will mount faq (M6b), eventually blog. Catalog, auth, newsletter integration.
-- **oldschoolgamers.org** — Active. Hugo + Go sidecar (hybrid). Will mount faq, eventually blog. Directory, sessions, namegen, attendance.
+- **oldschoolgamers.org** — Active. Hugo + Go sidecar (hybrid). Session-notes reimplementation is already underway; the driver is non-dev contributors (campaign players) who can't author via GitHub-as-CMS. Will mount **blog** as its first major use case, **faq** alongside. Other dynamic surfaces: directory, sessions, namegen, attendance.
 - **matthewjhunter.org** — Active. Hugo only today. Future consumer of blog when ready; no fixed migration deadline.
 - **amyhunter.org** — Active. Hugo + Go server. Already mounts **contact** and **newsletter** in production — the working reference for handler-only module integration.
 - **hunterfamily.website** — Placeholder ("coming soon"). Hugo + Go server. Newsletter likely; further surface TBD.
@@ -126,7 +126,7 @@ That cost is real but it does not justify a flag-day retirement. Most of the por
 Migrations off Hugo happen opportunistically, when a site's content authoring would actually benefit from being dynamic:
 
 - **sf** is already Go-only; nothing to migrate.
-- **osg** keeps Hugo for narrative content (campaign session reports authored as markdown bundles are well-suited to it) while moving newly-dynamic features into the Go sidecar. Migration of session-notes to a dynamic blog module is a candidate when the blog module is mature enough, not before.
+- **osg** is the leading-edge migration. Session-notes are being reimplemented onto a dynamic blog-shaped CMS because GitHub + Hugo authoring is unworkable for non-dev contributors; Hugo's narrative-markdown ergonomics don't help when the people writing the reports can't operate the toolchain. The blog module's first production deployment will be here. Existing session-note markdown bundles will migrate gradually after the new tool is live. Hugo's role at osg shrinks as this lands; other dynamic features continue to move into the Go sidecar.
 - **mjh** stays on Hugo until the blog module exists and there's a clear benefit. No deadline.
 - **amyhunter.org**, **hunterfamily.website**, **infodancer.{com,net,org}** stay on Hugo. They're content sites; Hugo is the right tool. They become `infodancer/ui` consumers via the Hugo partials variant.
 - **Personal and legacy Hugo sites outside the active portfolio** keep their existing themes indefinitely. Adopting `infodancer/ui` is optional and only worthwhile if such sites get relaunched into the active set.
@@ -175,7 +175,7 @@ Modules ship their own migrations via `goose` and run them on startup. The host 
 - **matthewjhunter/timeline** is pre-release. PostgreSQL-backed, htmx-driven, fully functional standalone; mountable-module shape will land alongside `infodancer/ui` consumption.
 - **infodancer/oidclient** and **infodancer/webauth** are in production. They are the reference for the auth integration pattern; any new module consumes them via the `UserResolver` shape.
 - **infodancer/ui** does not yet exist. It is the first piece of new work this document anticipates.
-- **infodancer/blog** does not yet exist. Its DESIGN.md is planned alongside `infodancer/ui` so the token vocabulary is disciplined by two known full-UI consumers (faq + blog) rather than one.
+- **infodancer/blog** does not yet exist but is on the near-term critical path because osg's session-notes reimplementation depends on it. Its DESIGN.md is planned alongside `infodancer/ui` so the token vocabulary is disciplined by two known full-UI consumers (faq + blog) rather than one — and so the design is ready when implementation starts in earnest.
 
 **Consumer sites:** sf is the immediate target for faq M6b. osg, mjh, amy, hunterfamily, herald, mail webadmin, and mail webmail are all first-class consumers in different stages. The infodancer.* TLD info sites are smaller-scope adopters once the Hugo partials variant of `infodancer/ui` exists.
 
@@ -199,5 +199,5 @@ The full portfolio walk that informed this revision is complete. The token vocab
 2. Spec `infodancer/ui` v1: token list (informed by the surfaces in faq, timeline, contact/newsletter response fragments, herald, webadmin, sf, osg, amy, hunterfamily, and the infodancer.* info sites), base CSS shape, parallel Go and Hugo partial variants, integration contract for both worlds.
 3. Spec `infodancer/blog` DESIGN.md (no implementation, just the design document; its job is to validate the token vocabulary against a second known full-UI consumer).
 4. Spec faq M6a-12 (theming hook in the faq module that consumes `infodancer/ui` tokens cleanly).
-5. After all three specs are settled, begin implementation in the order that minimizes rework — likely `infodancer/ui` v1 first, then faq M6a-12, then faq M6b (sf wiring), with blog implementation deferred until osg's content surface actually needs it.
+5. After all three specs are settled, begin implementation in the order that minimizes rework — `infodancer/ui` v1 first; then blog and faq M6a-12 in parallel (they're independent and both block real consumer work — blog for osg's session-notes CMS, faq M6a-12 for sf's faq mount); then faq M6b (sf wiring). The blog module is no longer a "wait and see" item — osg's session-notes reimplementation is already moving and depends on it.
 6. As `infodancer/ui` lands, update the four scaffold repos (template-go, template-hugo, web-template, hmx-template) to reference it from new-repo creation.
