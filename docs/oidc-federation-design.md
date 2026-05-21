@@ -19,12 +19,31 @@ violates one, the change is wrong, not the rule.
    code in infodancer/auth, it does not belong there.)
 
 2. **webauth is the ONLY federation client, and it federates uniformly.**
-   It is the single login UI and the only OIDC relying party in the stack. Gmail,
-   GitHub, and *auth-hosted owned domains* all flow through the **same** upstream
-   path in webauth: extract domain → discover issuer (webfinger / OIDC discovery) →
-   authorization-code flow as an RP → map result to a webauth identity. Owned domains
-   are not a special case in webauth; they are just an upstream whose issuer happens
-   to be `auth.<domain>`. (Case 3 — no OIDC — falls through to webauth's local DB.)
+   It is the single login UI and the only OIDC relying party in the stack. The user
+   always **enters their email**; webauth resolves the domain to an upstream, runs the
+   authorization-code flow as an RP, and maps the result to a webauth identity.
+
+   Login is **email-driven, not button-driven.** There are no "Login with X" buttons by
+   preference — the user types `alice@gmail.com` and webauth routes by domain, rather
+   than presenting a wall of provider buttons. A visible button is a tolerated last
+   resort, used only where a specific provider's flow genuinely cannot be initiated
+   from the typed email alone.
+
+   Resolving the email domain to an upstream uses one of two mechanisms, both feeding
+   the **same** RP path:
+   - **Autodiscovery (zero-config):** webfinger → OIDC discovery → RFC 7591 dynamic
+     registration. This reaches *auth-hosted owned domains* and any federation-aware
+     peer. Owned domains are not special-cased; they are just an upstream whose issuer
+     happens to be `auth.<domain>`.
+   - **Pre-configured special-case providers:** Gmail, GitHub, and similar consumer
+     IdPs do **not** serve webfinger at their email domain and do **not** support
+     dynamic registration, so they *cannot* be autodiscovered. Each is reached via a
+     manually pre-registered OAuth/OIDC client (a one-time admin setup), still keyed by
+     the typed email domain (`@gmail.com` → the configured Google client). This is a
+     small, explicit, admin-managed set — not a return to a hardcoded provider list for
+     every domain.
+
+   (Case 3 — no OIDC and not a configured provider — falls through to webauth's local DB.)
 
 3. **Websites are dumb relying parties.** They authenticate users either against
    their own local DB or by delegating to webauth via `oidclient`. They never talk to
@@ -195,8 +214,16 @@ from the directories present in `domain_data_path`.
 
 ### webauth (infodancer/webauth)
 
-Upstream OIDC providers are not pre-configured. Webauth autodiscovers them at login
-time by probing the email domain. No list of trusted issuers is maintained.
+Most upstreams are not pre-configured: webauth autodiscovers them at login time by
+probing the email domain (webfinger → OIDC discovery → RFC 7591). Two things *are*
+admin-configured:
+
+- **Special-case providers** that don't support autodiscovery (Gmail, GitHub) are
+  reached via manually pre-registered clients, keyed by email domain.
+- A **per-tenant federation mode** governs which domains may be used and whether
+  accounts may be created: `auto` (probe OIDC; any domain may sign up), `allowlist`
+  (only listed domains), `local` (no OIDC; local accounts only), `locked` (no account
+  creation — users provisioned out of band).
 
 ```toml
 [server]
@@ -204,7 +231,7 @@ listen   = ":8080"
 base_url = "https://webauth.infodancer.net"
 
 [database]
-path = "/var/lib/webauth/webauth.db"
+url = "postgres://webauth:…@postgres:5432/webauth?sslmode=disable"
 
 [smtp]
 # ... email delivery for verification/reset flows
