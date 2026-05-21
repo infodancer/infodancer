@@ -1,9 +1,36 @@
 # OIDC Federation Design
 
 **Status:** Authoritative
-**Repos affected:** infodancer/auth, infodancer/webauth, infodancer/herald (and any future service that authenticates users)
+**Repos affected:** infodancer/auth, infodancer/webauth, infodancer/oidclient, infodancer/herald, the websites (mjh, osg, sf, amy, hunterfamily, tf, …), and homelab (deployment). Any service that authenticates users.
 
 ---
+
+## Invariants — read these before changing anything
+
+We have re-derived and re-broken this since March. Three hard rules. If a change
+violates one, the change is wrong, not the rule.
+
+1. **auth-oidc is a leaf identity provider. It is NEVER a federation client.**
+   Its only job is to authenticate users of *owned mail domains* against their
+   *local passwd files*, and to expose that as standard OIDC + webfinger so others
+   can discover and use it. It has no upstream, no "login with Google," no
+   federation-client / upstream-callback code. A login at `auth.<domain>` is always
+   checked against that domain's passwd file — full stop. (If you find upstream/RP
+   code in infodancer/auth, it does not belong there.)
+
+2. **webauth is the ONLY federation client, and it federates uniformly.**
+   It is the single login UI and the only OIDC relying party in the stack. Gmail,
+   GitHub, and *auth-hosted owned domains* all flow through the **same** upstream
+   path in webauth: extract domain → discover issuer (webfinger / OIDC discovery) →
+   authorization-code flow as an RP → map result to a webauth identity. Owned domains
+   are not a special case in webauth; they are just an upstream whose issuer happens
+   to be `auth.<domain>`. (Case 3 — no OIDC — falls through to webauth's local DB.)
+
+3. **Websites are dumb relying parties.** They authenticate users either against
+   their own local DB or by delegating to webauth via `oidclient`. They never talk to
+   auth-oidc, Gmail, or any upstream directly, and they never implement federation.
+
+Everything below elaborates these three rules.
 
 ## The Three Use Cases
 
