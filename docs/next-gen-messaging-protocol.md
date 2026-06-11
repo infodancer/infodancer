@@ -549,7 +549,7 @@ Opt-in web-of-trust reputation layer:
 
 ### What's Left to Design
 
-1. **Encryption model specifics** — multi-recipient key wrapping, forward secrecy, algorithm selection
-2. **Wire protocol** — binary format, versioning, extension mechanisms
+1. **Encryption model specifics** — ~~multi-recipient key wrapping, forward secrecy, algorithm selection~~ **Designed: see [protocol-crypto-design.md](protocol-crypto-design.md).**
+2. **Wire protocol** — ~~binary format, versioning, extension mechanisms~~ **Designed: see [protocol-wire-spec.md](protocol-wire-spec.md), built on [protocol-threat-model.md](protocol-threat-model.md).**
 3. **Domain discovery** — ~~how does a sending server find the receiving server for a domain?~~ **Decided: DNS SRV (`_mail._tcp.domain`). No SRV → fall back to SMTP. See protocol-outlines.md.**
-4. **Reference implementation design** — minimal correct implementation targeted at small hosters
+4. **Reference implementation design** — minimal correct implementation targeted at small hosters. **Sequenced: see [protocol-v1-scope.md](protocol-v1-scope.md) section 4; detailed design is the next phase.**
