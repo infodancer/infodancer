@@ -2,52 +2,59 @@
 
 This document describes the design for at-rest encryption of stored messages in the infodancer mail stack.
 
+*Updated 2026-06-12 for the maildancer monorepo: the former mail-deliver agent has been merged into mail-session, and session-manager now owns subprocess spawning. Component names and paths below reflect the consolidated layout.*
+
 ## Overview
 
-Messages are encrypted before being written to the message store and decrypted after retrieval. The store handles opaque encrypted blobs only — plaintext never touches disk after delivery. Encryption and decryption happen in the subprocess layer (mail-deliver, mail-session), not in the listener daemons.
+Messages are encrypted before being written to the message store and decrypted after retrieval. The store handles opaque encrypted blobs only — plaintext never touches disk after delivery. Encryption and decryption happen in the privilege-separated subprocess layer (mail-session), not in the listener daemons.
 
 The encryption primitive is NaCl box: X25519 key agreement + XSalsa20-Poly1305 AEAD. This is already implemented in `msgstore` via `golang.org/x/crypto/nacl/box`.
 
 ## Goals
 
 - At-rest encryption: a compromised mail store cannot be read without the user's private key
-- Spam scanning happens before encryption so the scanner sees plaintext
+- Spam scanning and Sieve filtering happen before encryption so they see plaintext
 - No plaintext written to disk after delivery
 - Key material is never stored on disk; it is derived at authentication time
 
 ## Non-Goals
 
 - Transport encryption (that is handled by TLS/STARTTLS)
-- End-to-end encryption between users
+- End-to-end encryption between users (that is SCMP/SDMP territory)
 - Server-side key escrow or admin recovery (open question — see below)
 
 ## Encryption Point
 
-**Where:** `mail-deliver`, after the spam check, before calling `dom.DeliveryAgent.Deliver()`.
+**Where:** the delivery pipeline in `internal/mail-session/deliver`, after the spam check and Sieve execution (stage 3), before the final mailbox write (stage 4, `deliverLocal`, which calls `dom.DeliveryAgent.Deliver()`).
 
-**Seam:** `mail-deliver/internal/deliver/deliver.go`, marked with the comment block `── Encryption seam ──`.
-
-**How:** When `DeliverRequest.EncryptionKeyHint` is non-empty, `mail-deliver` resolves the hint to a public key via `auth.KeyProvider` and wraps `dom.DeliveryAgent` with `msgstore.EncryptingDeliveryAgent` before calling `Deliver()`. The hint is a key fingerprint or identifier — not the key itself.
+**How:** When `DeliverRequest.EncryptionKeyHint` is non-empty, the pipeline resolves the hint to a public key via `auth.KeyProvider` and wraps `dom.DeliveryAgent` with `msgstore.EncryptingDeliveryAgent` before calling `Deliver()`. The hint is a key fingerprint or identifier — not the key itself.
 
 `msgstore.EncryptingDeliveryAgent` is fully implemented and tested. It encrypts per-recipient using NaCl box and sets `Envelope.Encryption` metadata.
 
-**Why here:** mail-deliver already runs as the recipient's uid, has access to the domain config, and is the natural privilege boundary for per-recipient operations.
+**Why here:** mail-session oneshot delivery already runs as the recipient's uid (spawned by session-manager with `SysProcAttr.Credential`), has access to the domain config, and is the natural privilege boundary for per-recipient operations.
+
+### Sieve interaction
+
+Sieve runs at stage 3, on plaintext, before the encryption point — same rationale as spam scanning. Two consequences:
+
+- Header, body, and size tests work unmodified; nothing in Sieve needs to know about at-rest encryption.
+- **Sieve `fileinto` currently bypasses the delivery-agent seam**: it writes via `FolderStore.DeliverToFolder`/`AppendToFolder` directly on the store, and `EncryptingDeliveryAgent` has no folder-delivery methods. Wiring encryption MUST extend the seam to cover folder writes, or a filtering user gets encrypted inbox mail and plaintext filed mail. Tracked as [maildancer#53](https://github.com/infodancer/maildancer/issues/53); that issue also specifies the guard test (deliver via fileinto with a key hint set, assert the on-disk blob is not plaintext).
 
 ## Decryption Point
 
-**Where:** `mail-session`, after reading bytes from the message store, before returning them over the pipe to pop3d/imapd.
+**Where:** `mail-session`, after reading bytes from the message store, before they leave the process over gRPC. pop3d and imapd reach mail-session through session-manager's gRPC proxy and only ever see what mail-session returns.
 
 **Interface:** `msgstore.DecryptingStore` wraps a `MessageStore` and intercepts `Retrieve`/`RetrieveFromFolder` to call `DecryptMessage` when a session key is set.
 
 **Current state:** `msgstore.PassthroughDecryptingStore` is a no-op implementation that holds the session key but does not decrypt. A real implementation calling `msgstore.DecryptMessage` will be added when encryption is fully wired in.
 
-**Why here:** IMAP FETCH with `Envelope`/`BodyStructure` options parses RFC 5322 structure from raw bytes. Decryption must happen before bytes reach the IMAP protocol layer — i.e., inside mail-session before the bytes are returned over the pipe.
+**Why here:** IMAP FETCH with `Envelope`/`BodyStructure` options parses RFC 5322 structure from raw bytes. Decryption must happen before bytes reach the IMAP protocol layer — i.e., inside mail-session before the bytes are returned over gRPC.
 
 ## Key Model
 
 ### Derivation
 
-Password-derived keys: a user's password plus a per-user salt produces an X25519 key pair via a KDF (Argon2id or HKDF — TBD). The function signature is defined in `auth`:
+Password-derived keys: a user's password plus a per-user salt produces an X25519 key pair via a KDF (Argon2id or HKDF — TBD). The function signature is defined in `auth/keys.go`:
 
 ```go
 func DeriveKeyPair(password, username string, salt []byte) (pub, priv []byte, err error)
@@ -66,7 +73,7 @@ The design supports a future upgrade where the password unlocks a per-user keyri
 
 ## Key Passing to mail-session
 
-The spawning daemon (pop3d or imapd) must pass the user's decrypted private key to the mail-session subprocess securely.
+session-manager — which authenticates the user and spawns mail-session with the user's uid/gid — must pass the user's decrypted private key to the mail-session subprocess securely.
 
 **Convention:** fd 3 carries a versioned JSON key envelope.
 
@@ -89,7 +96,7 @@ The JSON envelope (rather than raw bytes) provides an extension point without a 
 
 ### Protocol
 
-1. After authentication, the daemon derives or retrieves the user's private key
+1. After authenticating the user, session-manager derives or retrieves the user's private key
 2. Creates an `os.Pipe()`
 3. JSON-encodes the key envelope to the write end and closes it
 4. Passes the read end as `cmd.ExtraFiles[0]` (fd 3 in the child)
@@ -107,17 +114,17 @@ The JSON envelope (rather than raw bytes) provides an extension point without a 
 
 ## Wire Protocol
 
-### Delivery (smtpd → mail-deliver)
+### Delivery (smtpd → session-manager → mail-session)
 
-`DeliverRequest` in `mail-deliver/protocol/protocol.go` carries:
+`DeliverRequest` in `internal/mail-session/deliver/deliver.go` carries:
 
 ```go
-EncryptionKeyHint string `json:"encryption_key_hint,omitempty"`
+EncryptionKeyHint string
 ```
 
-Empty means no encryption. The hint format is a key fingerprint or identifier resolved by `auth.KeyProvider`. The field is `omitempty` for backward compatibility — existing requests without it deserialize cleanly.
+Empty means no encryption. The hint format is a key fingerprint or identifier resolved by `auth.KeyProvider`.
 
-The same field is mirrored in smtpd's internal wire type (`smtpd/internal/maildeliver/wire.go`).
+The field travels as `encryption_key_hint` in the `DeliveryMetadata` protobuf message (`internal/mail-session/proto/mailsession/v1`), populated by smtpd's `SessionManagerDeliveryAgent` (`internal/smtpd/smtp/smdeliver.go`) and unpacked by mail-session's gRPC delivery server. It is currently carried end to end but not yet acted on by the pipeline.
 
 ### Storage (Envelope)
 
@@ -125,11 +132,11 @@ The same field is mirrored in smtpd's internal wire type (`smtpd/internal/mailde
 
 ## Existing Implementation
 
-The following is already implemented and tested in `msgstore`:
+The following is already implemented in the maildancer monorepo:
 
 | Component | File | Status |
 |-----------|------|--------|
-| `EncryptingDeliveryAgent` | `msgstore/encrypting_delivery.go` | Implemented, tested |
+| `EncryptingDeliveryAgent` | `msgstore/encrypting_delivery.go` | Implemented, tested — `Deliver()` only; no folder delivery (see maildancer#53) |
 | `DecryptMessage()` | `msgstore/encrypting_delivery.go` | Implemented |
 | `DecryptingStore` interface | `msgstore/store.go` | Defined |
 | `PassthroughDecryptingStore` | `msgstore/decrypting_store.go` | Implemented (no-op) |
@@ -137,9 +144,9 @@ The following is already implemented and tested in `msgstore`:
 | `Envelope.Encryption` | `msgstore/delivery.go` | Defined |
 | `KeyProvider` interface | `auth/agent.go` | Defined |
 | `DeriveKeyPair` | `auth/keys.go` | Stub |
-| `EncryptionKeyHint` in wire protocol | `mail-deliver/protocol/protocol.go` | Defined |
-| fd 3 key reading | `mail-session/cmd/mail-session/main.go` | Plumbing only |
-| fd 3 pipe creation | `pop3d`, `imapd` subprocess spawn | Plumbing only |
+| `EncryptionKeyHint` in wire protocol | `internal/mail-session/deliver/deliver.go` + `proto/mailsession/v1` | Defined, carried end to end, not yet acted on |
+| fd 3 key reading | `cmd/mail-session/main.go` (`maybeWrapWithDecryptingStore`, marked `── Encryption seam ──`) | Implemented |
+| fd 3 pipe creation | session-manager spawn path (`internal/session-manager/manager`) | Not yet implemented |
 
 ## Outbound Queue Encryption and DKIM Signing
 
@@ -162,17 +169,19 @@ The Ed25519 signing key is converted to X25519 for encryption (a well-establishe
 
 ### Signing and encryption flow
 
-At **enqueue time** (smtpd has cleartext):
+At **enqueue time** (session-manager's OutboundService receives the message from smtpd and has cleartext; DKIM signing lives in `internal/session-manager/dkim`):
 
 1. Compute the DKIM-Signature header over the canonicalized message
 2. Store the DKIM-Signature value in the envelope file
 3. Encrypt the message body with the domain's X25519 public key (derived from the Ed25519 DKIM key)
 4. Write the encrypted body to the queue
 
-At **send time** (mail-remote):
+At **send time** (mail-remote, invoked by queue-manager):
 
 - **SMTP delivery:** decrypt body with domain private key, prepend stored DKIM-Signature header, send
 - **SDMP delivery:** decrypt body, send via SDMP (no DKIM needed)
+
+Queue body encryption (steps 3-4 and the send-time decrypt) is design-only as of this update; DKIM signing at enqueue time is implemented.
 
 ### Transport-dependent behavior
 
