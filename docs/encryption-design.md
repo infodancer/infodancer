@@ -25,20 +25,23 @@ The encryption primitive is NaCl box: X25519 key agreement + XSalsa20-Poly1305 A
 
 ## Encryption Point
 
-**Where:** the delivery pipeline in `internal/mail-session/deliver`, after the spam check and Sieve execution (stage 3), before the final mailbox write (stage 4, `deliverLocal`, which calls `dom.DeliveryAgent.Deliver()`).
+**Implemented** (maildancer#53 / PR #54).
 
-**How:** When `DeliverRequest.EncryptionKeyHint` is non-empty, the pipeline resolves the hint to a public key via `auth.KeyProvider` and wraps `dom.DeliveryAgent` with `msgstore.EncryptingDeliveryAgent` before calling `Deliver()`. The hint is a key fingerprint or identifier — not the key itself.
+**Where:** the delivery pipeline in `internal/mail-session/deliver`, as stage 3.5 (`encrypt.go`) — after the spam check and Sieve execution (stage 3, which evaluate plaintext), before any write.
 
-`msgstore.EncryptingDeliveryAgent` is fully implemented and tested. It encrypts per-recipient using NaCl box and sets `Envelope.Encryption` metadata.
+**How:** When `DeliverRequest.EncryptionKeyHint` is non-empty, the pipeline resolves the recipient's public key via the domain auth agent's `auth.KeyProvider` and encrypts the message once with `msgstore.EncryptMessage` (NaCl box; the blob is self-describing: ephemeral public key || nonce || ciphertext). Every write path then stores the same encrypted bytes — the stage-4 keep path (with `Envelope.Encryption` metadata set), Sieve `fileinto` via `DeliverToFolder`, the imap4flags `AppendToFolder` variant, and the local copy from `redirect :copy`. The hint requests encryption; the key lookup is by the recipient's base localpart, matching the key backend's per-username `.pub` files.
+
+Encrypting in the pipeline rather than by wrapping `dom.DeliveryAgent` was a deliberate choice: by the time any storage call runs, only ciphertext exists, so no delivery path can bypass the seam — the earlier design (wrap the delivery agent with `msgstore.EncryptingDeliveryAgent`) left Sieve's direct `FolderStore` writes uncovered (maildancer#53). `EncryptingDeliveryAgent` still exists for other callers but the pipeline does not use it.
+
+**Fail-closed:** encryption requested but unsatisfiable (no key provider, no key on file, encryption failure) temp-fails the delivery — never a silent plaintext fallback. The SMTP reason stays generic; the detail goes to the server log.
 
 **Why here:** mail-session oneshot delivery already runs as the recipient's uid (spawned by session-manager with `SysProcAttr.Credential`), has access to the domain config, and is the natural privilege boundary for per-recipient operations.
 
+**Not yet active in production:** smtpd does not set `EncryptionKeyHint`, so deliveries remain plaintext until the submission side opts in. Activating it requires the retrieval path (below) first.
+
 ### Sieve interaction
 
-Sieve runs at stage 3, on plaintext, before the encryption point — same rationale as spam scanning. Two consequences:
-
-- Header, body, and size tests work unmodified; nothing in Sieve needs to know about at-rest encryption.
-- **Sieve `fileinto` currently bypasses the delivery-agent seam**: it writes via `FolderStore.DeliverToFolder`/`AppendToFolder` directly on the store, and `EncryptingDeliveryAgent` has no folder-delivery methods. Wiring encryption MUST extend the seam to cover folder writes, or a filtering user gets encrypted inbox mail and plaintext filed mail. Tracked as [maildancer#53](https://github.com/infodancer/maildancer/issues/53); that issue also specifies the guard test (deliver via fileinto with a key hint set, assert the on-disk blob is not plaintext).
+Sieve runs at stage 3, on plaintext, before the encryption point — same rationale as spam scanning. Header, body, and size tests work unmodified; nothing in Sieve needs to know about at-rest encryption. The guard test (`TestEncrypt_SieveFileInto`) pins the evaluate-then-encrypt ordering: a header condition matches the plaintext Subject while the on-disk folder blob is asserted to be ciphertext.
 
 ## Decryption Point
 
@@ -136,15 +139,16 @@ The following is already implemented in the maildancer monorepo:
 
 | Component | File | Status |
 |-----------|------|--------|
-| `EncryptingDeliveryAgent` | `msgstore/encrypting_delivery.go` | Implemented, tested — `Deliver()` only; no folder delivery (see maildancer#53) |
-| `DecryptMessage()` | `msgstore/encrypting_delivery.go` | Implemented |
+| Pipeline encryption stage 3.5 (`maybeEncrypt`) | `internal/mail-session/deliver/encrypt.go` | Implemented, tested — covers all write paths including Sieve fileinto (maildancer#53) |
+| `EncryptMessage()` / `DecryptMessage()` | `msgstore/encrypting_delivery.go` | Implemented |
+| `EncryptingDeliveryAgent` | `msgstore/encrypting_delivery.go` | Implemented, tested — `Deliver()` only; not used by the pipeline |
 | `DecryptingStore` interface | `msgstore/store.go` | Defined |
 | `PassthroughDecryptingStore` | `msgstore/decrypting_store.go` | Implemented (no-op) |
 | `EncryptionInfo` | `msgstore/crypto.go` | Defined |
 | `Envelope.Encryption` | `msgstore/delivery.go` | Defined |
-| `KeyProvider` interface | `auth/agent.go` | Defined |
+| `KeyProvider` interface | `auth/agent.go` | Defined; implemented by the passwd backend (`keys/<user>.pub`, raw 32 bytes) |
 | `DeriveKeyPair` | `auth/keys.go` | Stub |
-| `EncryptionKeyHint` in wire protocol | `internal/mail-session/deliver/deliver.go` + `proto/mailsession/v1` | Defined, carried end to end, not yet acted on |
+| `EncryptionKeyHint` in wire protocol | `internal/mail-session/deliver/deliver.go` + `proto/mailsession/v1` | Acted on by stage 3.5; smtpd does not send it yet |
 | fd 3 key reading | `cmd/mail-session/main.go` (`maybeWrapWithDecryptingStore`, marked `── Encryption seam ──`) | Implemented |
 | fd 3 pipe creation | session-manager spawn path (`internal/session-manager/manager`) | Not yet implemented |
 
