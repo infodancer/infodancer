@@ -375,6 +375,27 @@ Native full clients, legacy gateway clients, and minimal clients need different 
 
 ---
 
+### Problem 12: Filter Rule Storage
+
+The server cannot filter messages — it holds ciphertext, hashed recipient addresses, and no reject channel, so Sieve-style server-side filtering is impossible by design. Filtering is a client operation, after decryption. But users have multiple clients (Problem 8), and filtering rules maintained per-device drift. The legacy stack's answer to rule management is ManageSieve — a whole separate protocol on its own port (4190).
+
+**Position:** the server stores the user's filter rules as one canonical, encrypted document; clients fetch, execute, and update them through C2S. The server never reads the rules — it stores an opaque blob like any other user data. No separate protocol, no additional port: rule storage is designed into C2S rather than bolted on the way ManageSieve was bolted onto the IMAP ecosystem.
+
+**Options:**
+
+- **A. Opaque encrypted blob with version counter** — Server stores one blob per user, encrypted client-side. Compare-and-swap on a version counter resolves concurrent updates from two devices. Simplest; server learns nothing, not even rule count.
+
+- **B. Synced via the multi-device event log** — Rule changes are events in the Problem 8 sync mechanism (if option B/D is chosen there). Rules converge the same way read/flag state does. No separate storage surface, but couples rule storage to the sync design.
+
+- **C. Named encrypted documents** — Generalize: server stores a small namespace of client-encrypted configuration documents (filter rules, client settings, signature blocks), each versioned. Filter rules become one entry. Slightly more API for much more reuse.
+
+**Notes:**
+- Rule format is a client concern, opaque to the protocol — clients of the same vendor share a format; a standard format can emerge later without protocol changes.
+- Escrow-mandatory domains can technically read stored rules (they hold the keys); covered by the existing escrow disclosure, no new disclosure needed.
+- Pull preferences (Problem 10) remain server-side policy — they act on envelope-visible data before fetch. Filter rules act on plaintext after fetch. The two layers are complementary, not redundant.
+
+---
+
 ## Domain Discovery: Extended Discussion
 
 ### The Problem
