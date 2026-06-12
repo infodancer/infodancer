@@ -1,6 +1,6 @@
 # Next-Generation Federated Messaging Protocol
 *Working requirements document — in progress*
-*Last updated: 2026-02-19*
+*Last updated: 2026-06-12*
 
 ## Problem Statement
 
@@ -268,8 +268,21 @@ Handles all communication between user's client and their own domain server:
 - Key management
 - Push notification to client
 - Policy configuration (pull preferences, reputation thresholds, retention policies, hash address management)
+- Filter rule storage (planned — see below)
 
 Client has exactly one server relationship — its own domain.
+
+### Filter Rule Storage (Planned)
+
+The server cannot filter messages: it holds ciphertext and hashed recipient addresses, and provides no rejection channel. Filtering is therefore a client-side operation, after decryption. What the server CAN do is store the rules for doing so in one canonical location: an encrypted, versioned document that all of a user's clients fetch, execute locally, and update through C2S.
+
+- Rules are encrypted client-side; the server stores an opaque blob and learns nothing (escrow-mandatory domains excepted, covered by the existing disclosure)
+- One canonical copy solves multi-device rule drift
+- Designed into C2S rather than spending another port on client-server configuration (contrast ManageSieve, a separate protocol on port 4190 bolted onto the IMAP ecosystem)
+- Rule format is opaque to the protocol — a client concern, standardizable later without protocol changes
+- Complementary to per-sender pull preferences, which remain server-side policy over envelope-visible data before fetch; filter rules act on plaintext after fetch
+
+See protocol-outlines.md C2S Problem 12 for the design options.
 
 ### Client Model
 
