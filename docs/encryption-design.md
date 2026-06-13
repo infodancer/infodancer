@@ -58,6 +58,14 @@ Sieve runs at stage 3, on plaintext, before the encryption point — same ration
 
 **Known limitations:** POP3 LIST/STAT and IMAP RFC822.SIZE report stored (encrypted) sizes, +72 bytes per encrypted message vs. what RETR/FETCH returns. Sessions authenticated without a password (OAUTHBEARER) cannot decrypt the key file, so encrypted messages are served as raw blobs.
 
+### Server-side search under whole-message encryption
+
+Whole-message encryption (headers included — headers *are* content; From/To/Subject/Message-ID/refs are the social graph, topic, and thread structure the at-rest model exists to protect) forecloses a plaintext server-side search index. The accepted tradeoff: IMAP content search decrypts transiently in mail-session, no plaintext index is ever persisted, and there is no graceful escape hatch for very large mailboxes — semantic/indexed search is a client concern (an SCMP client holds plaintext and can index locally). Two performance refinements that preserve the model are tracked but not required initially: moving content-search evaluation into mail-session so plaintext stops crossing the proxy (maildancer#61), and an encrypted-at-rest header-index cache decrypted transiently in-session (maildancer#62). A naive vector index is **not** an option — embeddings stored at rest leak the plaintext under inversion (maildancer#63).
+
+### Client-side reuse
+
+The same threat model applies to a native SCMP client's local mailbox: a stolen laptop is the client-side equivalent of a stolen mail-store disk, so the client wants its local store encrypted at rest too. The natural construction is the same one used here — the client views its local mailbox through a mail-session-style component that holds the user's key and decrypts on retrieval. mail-session is therefore a reusable at-rest-decryption layer, not a server-only one; SCMP/messagedancer are expected to consume it (or an equivalent) for local storage rather than re-implementing the decrypt-at-retrieval boundary.
+
 ## Key Model
 
 ### Derivation
