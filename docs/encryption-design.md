@@ -29,15 +29,15 @@ The encryption primitive is NaCl box: X25519 key agreement + XSalsa20-Poly1305 A
 
 **Where:** the delivery pipeline in `internal/mail-session/deliver`, as stage 3.5 (`encrypt.go`) — after the spam check and Sieve execution (stage 3, which evaluate plaintext), before any write.
 
-**How:** When `DeliverRequest.EncryptionKeyHint` is non-empty, the pipeline resolves the recipient's public key via the domain auth agent's `auth.KeyProvider` and encrypts the message once with `msgstore.EncryptMessage` (NaCl box; the blob is self-describing: ephemeral public key || nonce || ciphertext). Every write path then stores the same encrypted bytes — the stage-4 keep path (with `Envelope.Encryption` metadata set), Sieve `fileinto` via `DeliverToFolder`, the imap4flags `AppendToFolder` variant, and the local copy from `redirect :copy`. The hint requests encryption; the key lookup is by the recipient's base localpart, matching the key backend's per-username `.pub` files.
+**How:** The pipeline looks up the recipient's public key via the domain auth agent's `auth.KeyProvider`, keyed by the recipient's base localpart (matching the key backend's per-username `.pub` files). When a key exists, the message is encrypted once with `msgstore.EncryptMessage` (NaCl box; the blob is self-describing: ephemeral public key || nonce || ciphertext) and every write path stores the same encrypted bytes -- the stage-4 keep path (with `Envelope.Encryption` metadata set), Sieve `fileinto` via `DeliverToFolder`, the imap4flags `AppendToFolder` variant, and the local copy from `redirect :copy`. **Key presence is the gate (maildancer#65):** a recipient with a key gets ciphertext; a recipient with no key gets plaintext. There is no per-delivery signal -- the retired `EncryptionKeyHint` is gone.
 
 Encrypting in the pipeline rather than by wrapping `dom.DeliveryAgent` was a deliberate choice: by the time any storage call runs, only ciphertext exists, so no delivery path can bypass the seam — the earlier design (wrap the delivery agent with `msgstore.EncryptingDeliveryAgent`) left Sieve's direct `FolderStore` writes uncovered (maildancer#53). `EncryptingDeliveryAgent` still exists for other callers but the pipeline does not use it.
 
-**Fail-closed:** encryption requested but unsatisfiable (no key provider, no key on file, encryption failure) temp-fails the delivery — never a silent plaintext fallback. The SMTP reason stays generic; the detail goes to the server log.
+**Fail-closed:** a recipient who *has* a key but for whom encryption is unsatisfiable (key backend read error, corrupt or wrong-length key, encryption failure) temp-fails the delivery -- never a silent plaintext fallback. A recipient with no key is not an error; that is the plaintext case. The SMTP reason stays generic; the detail goes to the server log.
 
 **Why here:** mail-session oneshot delivery already runs as the recipient's uid (spawned by session-manager with `SysProcAttr.Credential`), has access to the domain config, and is the natural privilege boundary for per-recipient operations.
 
-**Not yet active in production:** smtpd does not set `EncryptionKeyHint`, so deliveries remain plaintext until the submission side opts in. Activating it requires the retrieval path (below) first.
+**Activation is per-domain via key provisioning (maildancer#65).** Because the gate is key presence, a user's mail is encrypted as soon as they have a keypair. The `encryption_mode` field in a domain's `config.toml` -- `off` (default) or `on` -- controls whether `userctl user add` / webadmin provision a keypair for new users. `on` therefore turns on at-rest encryption for that domain's users; `off` leaves them plaintext. The mode governs provisioning, not the runtime gate, so setting a domain back to `off` does not strip existing keys or downgrade stored mail. A future `escrow` mode (recoverable via an admin recovery key) is reserved but unimplemented.
 
 ### Sieve interaction
 
@@ -132,15 +132,7 @@ The JSON envelope (rather than raw bytes) provides an extension point without a 
 
 ### Delivery (smtpd → session-manager → mail-session)
 
-`DeliverRequest` in `internal/mail-session/deliver/deliver.go` carries:
-
-```go
-EncryptionKeyHint string
-```
-
-Empty means no encryption. The hint format is a key fingerprint or identifier resolved by `auth.KeyProvider`.
-
-The field travels as `encryption_key_hint` in the `DeliveryMetadata` protobuf message (`internal/mail-session/proto/mailsession/v1`), populated by smtpd's `SessionManagerDeliveryAgent` (`internal/smtpd/smtp/smdeliver.go`) and unpacked by mail-session's gRPC delivery server. It is currently carried end to end but not yet acted on by the pipeline.
+The delivery envelope carries no encryption signal. mail-session decides to encrypt purely on whether the recipient has a public key (see the activation note above). The `encryption_key_hint` field on the `DeliveryMetadata` protobuf was retired in maildancer#65 -- field 6 is now `reserved` -- and `DeliverRequest` no longer carries it.
 
 ### Storage (Envelope)
 
@@ -152,7 +144,8 @@ The following is already implemented in the maildancer monorepo:
 
 | Component | File | Status |
 |-----------|------|--------|
-| Pipeline encryption stage 3.5 (`maybeEncrypt`) | `internal/mail-session/deliver/encrypt.go` | Implemented, tested — covers all write paths including Sieve fileinto (maildancer#53) |
+| Pipeline encryption stage 3.5 (`maybeEncrypt`) | `internal/mail-session/deliver/encrypt.go` | Implemented, tested, **active** -- gated on recipient key presence (maildancer#65); covers all write paths including Sieve fileinto (maildancer#53) |
+| Per-domain `encryption_mode` (off/on) | `auth/domain/config.go`, `internal/admin` | Implemented, tested -- `on` provisions a keypair at user creation, activating at-rest encryption for the domain (maildancer#65) |
 | `EncryptMessage()` / `DecryptMessage()` | `msgstore/encrypting_delivery.go` | Implemented |
 | `EncryptingDeliveryAgent` | `msgstore/encrypting_delivery.go` | Implemented, tested — `Deliver()` only; not used by the pipeline |
 | `DecryptingStore` interface | `msgstore/store.go` | Defined |
@@ -161,7 +154,7 @@ The following is already implemented in the maildancer monorepo:
 | `Envelope.Encryption` | `msgstore/delivery.go` | Defined |
 | `KeyProvider` interface | `auth/agent.go` | Defined; implemented by the passwd backend (`keys/<user>.pub`, raw 32 bytes) |
 | `DeriveKeyPair` | `auth/keys.go` | Stub |
-| `EncryptionKeyHint` in wire protocol | `internal/mail-session/deliver/deliver.go` + `proto/mailsession/v1` | Acted on by stage 3.5; smtpd does not send it yet |
+| `EncryptionKeyHint` in wire protocol | (removed) | Retired in maildancer#65 -- gate is recipient key presence; `DeliverMetadata` field 6 reserved |
 | fd 3 key reading | `cmd/mail-session/main.go` (`maybeWrapWithDecryptingStore`, marked `── Encryption seam ──`) | Implemented |
 | fd 3 pipe creation | session-manager spawn path (`internal/session-manager/manager`, `keyPipe`) | Implemented — Login passes `AuthSession.PrivateKey` to spawn |
 
@@ -227,7 +220,7 @@ When relaying a message received via SDMP that must be delivered via SMTP (futur
 
 - **Per-folder encryption:** Should only specific folders (e.g., INBOX, Sent) be encrypted, with others in plaintext for performance?
 - **Key rotation:** ~~When a user changes their password, how are existing encrypted messages re-encrypted?~~ **Resolved for password changes (maildancer#59):** the password seals the private key, not the messages, so a password change re-seals the *same* X25519 keypair and existing mail needs no re-encryption (`admin.ChangePassword`). Still open: rotating the message-encryption *keypair itself* (as opposed to its password seal) — there is no mechanism to re-encrypt a mailbox from an old keypair to a new one, so today regenerating the keypair (`admin.ResetPasswordRegenKeys`, the admin-reset path) abandons access to old mail rather than migrating it. A batch re-encrypt or lazy-on-access migration would be needed to make true keypair rotation non-destructive.
-- **Admin recovery:** Should there be an admin recovery key? Current design has no escrow — a forgotten password means permanent data loss.
+- **Admin recovery (the reserved `escrow` mode):** There is no escrow today, so under `encryption_mode = "on"` a forgotten password means permanent data loss -- which is why `off` is the default. A recoverable `escrow` mode is reserved in the config but unimplemented. It is the substantive remaining work: the current blob is sealed to a single recipient key (`box.Seal` with one ephemeral sender), so recovery-by-second-key needs a format change (a random per-message DEK wrapped to both the user's and a domain recovery key, or a parallel escrow blob) plus safe custody of the domain recovery private key (admin-held and itself password/HSM-sealed, not sitting beside the DKIM key). Escrow deliberately weakens the "server holds no key that decrypts user mail" property, so it must stay opt-in per domain.
 - **Multiple device keys:** Should a user be able to have multiple key pairs (one per device) with the message encrypted to all of them?
 - **Header preservation:** IMAP SEARCH and SORT require access to parsed headers. If messages are encrypted as opaque blobs, server-side search is impossible. Options: encrypt body only, store headers in plaintext alongside the encrypted blob, or require client-side search.
 - **KDF choice:** Argon2id (memory-hard, widely recommended) vs HKDF (fast, deterministic). Argon2id is preferred for password-derived keys.
