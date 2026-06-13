@@ -72,7 +72,7 @@ Currently a stub. The output is two opaque 32-byte slices compatible with `nacl/
 
 **What is actually implemented is the keyring model, not direct derivation:** the `auth/passwd` backend stores a sealed private key per user (`keys/<user>.key`: salt || nonce || secretbox under an Argon2id password-derived key) alongside the raw 32-byte public key (`keys/<user>.pub`). `Agent.Authenticate` unseals the private key at login and returns it in `AuthSession.PrivateKey`. `DeriveKeyPair` (direct password-to-key derivation, no stored key file) remains a stub and an open alternative.
 
-**Provisioning gap:** nothing writes `.key` files yet — `auth/passwd` can decrypt them but has no encrypt counterpart, and userctl has no key-provisioning command. Until that exists, user encryption keys can only be created by hand.
+**Provisioning:** `internal/admin/keys.GenerateKeypair` writes the sealed `.key` and raw `.pub` in exactly the format `auth/passwd` reads (a cross-package round-trip test pins the shared Argon2id parameters against drift). It is driven by `userctl user key create` / `user add --gen-keys` and the webadmin key UI. Because the key is sealed under the user's password, changing the password must re-seal it: `admin.ChangePassword` (current password known) re-seals the same keypair, `admin.ResetPasswordRegenKeys` (admin reset, current password unknown) regenerates it — a bare `ResetPassword` on a keyed user is refused, since it would orphan the key and lock the user out (`auth/passwd` treats an unsealable key as a hard authentication failure). See maildancer#58 / PR #59.
 
 ### Storage
 
@@ -218,7 +218,7 @@ When relaying a message received via SDMP that must be delivered via SMTP (futur
 ## Open Questions
 
 - **Per-folder encryption:** Should only specific folders (e.g., INBOX, Sent) be encrypted, with others in plaintext for performance?
-- **Key rotation:** When a user changes their password, how are existing encrypted messages re-encrypted? Batch job? Lazy on access?
+- **Key rotation:** ~~When a user changes their password, how are existing encrypted messages re-encrypted?~~ **Resolved for password changes (maildancer#59):** the password seals the private key, not the messages, so a password change re-seals the *same* X25519 keypair and existing mail needs no re-encryption (`admin.ChangePassword`). Still open: rotating the message-encryption *keypair itself* (as opposed to its password seal) — there is no mechanism to re-encrypt a mailbox from an old keypair to a new one, so today regenerating the keypair (`admin.ResetPasswordRegenKeys`, the admin-reset path) abandons access to old mail rather than migrating it. A batch re-encrypt or lazy-on-access migration would be needed to make true keypair rotation non-destructive.
 - **Admin recovery:** Should there be an admin recovery key? Current design has no escrow — a forgotten password means permanent data loss.
 - **Multiple device keys:** Should a user be able to have multiple key pairs (one per device) with the message encrypted to all of them?
 - **Header preservation:** IMAP SEARCH and SORT require access to parsed headers. If messages are encrypted as opaque blobs, server-side search is impossible. Options: encrypt body only, store headers in plaintext alongside the encrypted blob, or require client-side search.
