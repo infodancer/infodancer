@@ -49,9 +49,14 @@ Sieve runs at stage 3, on plaintext, before the encryption point — same ration
 
 **Interface:** `msgstore.DecryptingStore` wraps a `MessageStore` and intercepts `Retrieve`/`RetrieveFromFolder` to call `DecryptMessage` when a session key is set.
 
-**Current state:** `msgstore.PassthroughDecryptingStore` is a no-op implementation that holds the session key but does not decrypt. A real implementation calling `msgstore.DecryptMessage` will be added when encryption is fully wired in.
+**Implemented** (maildancer#55 / PR #57). The wrapper decrypts retrieval and serves undecryptable content raw — plaintext stored before encryption was enabled, or a blob for a different key, comes back unchanged rather than erroring, so mixed mailboxes work. Two correctness properties worth knowing:
+
+- The wrapper preserves `FolderStore` when the underlying store has it (mail-session's `session.Session` type-asserts at construction; a wrapper hiding the interface would silently disable IMAP folders).
+- Folder writes encrypt: `AppendToFolder` (IMAP APPEND — drafts, saved sent mail) and `DeliverToFolder` encrypt with the public key derived from the session private key, so client appends cannot reintroduce plaintext into an encrypted mailbox.
 
 **Why here:** IMAP FETCH with `Envelope`/`BodyStructure` options parses RFC 5322 structure from raw bytes. Decryption must happen before bytes reach the IMAP protocol layer — i.e., inside mail-session before the bytes are returned over gRPC.
+
+**Known limitations:** POP3 LIST/STAT and IMAP RFC822.SIZE report stored (encrypted) sizes, +72 bytes per encrypted message vs. what RETR/FETCH returns. Sessions authenticated without a password (OAUTHBEARER) cannot decrypt the key file, so encrypted messages are served as raw blobs.
 
 ## Key Model
 
@@ -65,14 +70,14 @@ func DeriveKeyPair(password, username string, salt []byte) (pub, priv []byte, er
 
 Currently a stub. The output is two opaque 32-byte slices compatible with `nacl/box`.
 
+**What is actually implemented is the keyring model, not direct derivation:** the `auth/passwd` backend stores a sealed private key per user (`keys/<user>.key`: salt || nonce || secretbox under an Argon2id password-derived key) alongside the raw 32-byte public key (`keys/<user>.pub`). `Agent.Authenticate` unseals the private key at login and returns it in `AuthSession.PrivateKey`. `DeriveKeyPair` (direct password-to-key derivation, no stored key file) remains a stub and an open alternative.
+
+**Provisioning gap:** nothing writes `.key` files yet — `auth/passwd` can decrypt them but has no encrypt counterpart, and userctl has no key-provisioning command. Until that exists, user encryption keys can only be created by hand.
+
 ### Storage
 
-- **Public key:** stored in the domain key backend, accessible to `auth.KeyProvider`
-- **Private key:** never stored; re-derived from the user's password at authentication time
-
-### Future: Keyring
-
-The design supports a future upgrade where the password unlocks a per-user keyring (e.g., a sealed key blob stored on disk) rather than deriving the key directly from the password each time. The `DeriveKeyPair` interface accommodates this migration — callers treat the output as opaque.
+- **Public key:** stored in the domain key backend (`keys/<user>.pub`, raw 32 bytes), accessible to `auth.KeyProvider`
+- **Private key:** stored sealed (`keys/<user>.key`); unsealed only at authentication time, held in memory for the session
 
 ## Key Passing to mail-session
 
@@ -143,14 +148,14 @@ The following is already implemented in the maildancer monorepo:
 | `EncryptMessage()` / `DecryptMessage()` | `msgstore/encrypting_delivery.go` | Implemented |
 | `EncryptingDeliveryAgent` | `msgstore/encrypting_delivery.go` | Implemented, tested — `Deliver()` only; not used by the pipeline |
 | `DecryptingStore` interface | `msgstore/store.go` | Defined |
-| `PassthroughDecryptingStore` | `msgstore/decrypting_store.go` | Implemented (no-op) |
+| Decrypting store (folder-aware, encrypts appends) | `msgstore/decrypting_store.go` | Implemented, tested |
 | `EncryptionInfo` | `msgstore/crypto.go` | Defined |
 | `Envelope.Encryption` | `msgstore/delivery.go` | Defined |
 | `KeyProvider` interface | `auth/agent.go` | Defined; implemented by the passwd backend (`keys/<user>.pub`, raw 32 bytes) |
 | `DeriveKeyPair` | `auth/keys.go` | Stub |
 | `EncryptionKeyHint` in wire protocol | `internal/mail-session/deliver/deliver.go` + `proto/mailsession/v1` | Acted on by stage 3.5; smtpd does not send it yet |
 | fd 3 key reading | `cmd/mail-session/main.go` (`maybeWrapWithDecryptingStore`, marked `── Encryption seam ──`) | Implemented |
-| fd 3 pipe creation | session-manager spawn path (`internal/session-manager/manager`) | Not yet implemented |
+| fd 3 pipe creation | session-manager spawn path (`internal/session-manager/manager`, `keyPipe`) | Implemented — Login passes `AuthSession.PrivateKey` to spawn |
 
 ## Outbound Queue Encryption and DKIM Signing
 
