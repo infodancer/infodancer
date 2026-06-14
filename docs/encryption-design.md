@@ -60,7 +60,13 @@ Sieve runs at stage 3, on plaintext, before the encryption point — same ration
 
 ### Server-side search under whole-message encryption
 
-Whole-message encryption (headers included — headers *are* content; From/To/Subject/Message-ID/refs are the social graph, topic, and thread structure the at-rest model exists to protect) forecloses a plaintext server-side search index. The accepted tradeoff: IMAP content search decrypts transiently in mail-session, no plaintext index is ever persisted, and there is no graceful escape hatch for very large mailboxes — semantic/indexed search is a client concern (an SCMP client holds plaintext and can index locally). Two performance refinements that preserve the model are tracked but not required initially: moving content-search evaluation into mail-session so plaintext stops crossing the proxy (maildancer#61), and an encrypted-at-rest header-index cache decrypted transiently in-session (maildancer#62). A naive vector index is **not** an option — embeddings stored at rest leak the plaintext under inversion (maildancer#63).
+Whole-message encryption (headers included — headers *are* content; From/To/Subject/Message-ID/refs are the social graph, topic, and thread structure the at-rest model exists to protect) forecloses a plaintext server-side search index. The accepted property, which holds on both the server and any client: **content search needs no decrypted cache or plaintext index anywhere.**
+
+Predicates are evaluated message-by-message — retrieve, decrypt in memory, test substrings, discard the plaintext. Nothing decrypted is persisted and nothing is indexed. `msgstore.SearchContentStore`, the `ContentSearcher` interface, and `MatchMessageContent` (`msgstore/search.go`) are the shared implementation behind both the local path and the mail-session gRPC handler.
+
+For imapd/pop3d the evaluation runs **inside mail-session** and returns only per-message match booleans (plus the header block when a header or sent-date predicate needs it); message bodies never cross the session-manager gRPC boundary (maildancer#61, implemented).
+
+The cost is honest: brute-force scan-with-decrypt (case-insensitive octet containment), O(folder) per search, no index — the same work a non-indexed IMAP server does, minus the index. There is no graceful escape hatch for very large mailboxes; semantic/indexed search is a client concern, and an SCMP client (or the IMAP/SCMP bridge) holds plaintext locally and can index there. Two items preserve the model without changing the no-cache property: an encrypted-at-rest header-index cache decrypted transiently in-session (maildancer#62, performance only), and — foreclosed — a naive vector index, since embeddings stored at rest leak the plaintext under inversion (maildancer#63).
 
 ### Client-side reuse
 
