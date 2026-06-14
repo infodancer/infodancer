@@ -6,7 +6,7 @@
 queue-manager currently passes a single global `--smarthost` flag to every
 mail-remote invocation. There is no way to vary the delivery transport by
 sender domain. This is needed for deployments where different sending domains
-have different outbound requirements — for example, one domain delivers
+have different outbound requirements -- for example, one domain delivers
 directly via MX while another relays through AWS SES.
 
 ## Design Principle
@@ -23,10 +23,10 @@ queue-manager owns delivery policy. It already owns retry scheduling, rate
 limiting, TTL expiry, and DSN generation. Adding transport routing here means:
 
 - **One place** regardless of submission protocol (SMTP, scmp, sdmp).
-- **Changeable at runtime** — updating a domain's config affects the next
+- **Changeable at runtime** -- updating a domain's config affects the next
   queue scan, including already-queued messages on retry.
 - **smtpd stays focused** on receiving, authentication, and queue injection.
-- **mail-remote stays simple** — it already accepts `--smarthost` and
+- **mail-remote stays simple** -- it already accepts `--smarthost` and
   `--smarthost-user` flags; no changes needed.
 
 ## Configuration
@@ -150,7 +150,7 @@ matching the existing queue layout convention.
 ### Config loading
 
 queue-manager reads domain config on demand. No need for a full
-`DomainProvider` — only the `[outbound]` section is needed:
+`DomainProvider` -- only the `[outbound]` section is needed:
 
 ```go
 type OutboundConfig struct {
@@ -226,7 +226,7 @@ func (s *Scheduler) buildArgs(bodyPath string, envPaths []string, final bool, ou
 ```
 
 The global `--smarthost` and `--smarthost-user` CLI flags on queue-manager
-become the fallback when no domain config is found — preserving backward
+become the fallback when no domain config is found -- preserving backward
 compatibility.
 
 ## Changes to `auth/domain`
@@ -256,7 +256,7 @@ queue-manager does **not** import `auth/domain` as a library dependency. It
 defines its own minimal struct for parsing `[outbound]` from the TOML file.
 This avoids pulling auth/domain (and its transitive dependencies) into
 queue-manager. The structs are compatible because they parse the same TOML
-structure — they just live in different packages.
+structure -- they just live in different packages.
 
 ## Fallback Order
 

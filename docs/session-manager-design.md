@@ -7,8 +7,8 @@ for uid/gid isolation. This works on a single host but prevents network-separate
 deployments where protocol handlers (smtpd, imapd, pop3d) run on different hosts
 from the mail store.
 
-Additionally, the dispatcher logic — auth signal handling, credential lookup,
-mail-session lifecycle management — is duplicated across all three daemons.
+Additionally, the dispatcher logic -- auth signal handling, credential lookup,
+mail-session lifecycle management -- is duplicated across all three daemons.
 
 ## Decision
 
@@ -33,7 +33,7 @@ scmp  ──┘                                              unix socket
 ### Single-host deployment (backward compatible)
 
 Protocol handlers can still spawn mail-session locally when no session manager
-is configured. The session manager is optional — single-host deployments work
+is configured. The session manager is optional -- single-host deployments work
 exactly as they do today.
 
 ### Multi-host deployment
@@ -43,17 +43,17 @@ The session manager runs on the mail storage host(s) alongside the maildirs.
 
 ## Session Manager Responsibilities
 
-1. **Authentication** — accepts credentials from protocol handlers, validates
+1. **Authentication** -- accepts credentials from protocol handlers, validates
    against the auth backend (passwd, LDAP, etc.)
-2. **Credential lookup** — resolves uid, gid, basePath, store type from
+2. **Credential lookup** -- resolves uid, gid, basePath, store type from
    per-domain config and passwd files
-3. **Process spawning** — starts mail-session with the correct uid/gid via
+3. **Process spawning** -- starts mail-session with the correct uid/gid via
    `SysProcAttr.Credential`
-4. **Session multiplexing** — routes gRPC RPCs from protocol handlers to the
+4. **Session multiplexing** -- routes gRPC RPCs from protocol handlers to the
    correct per-user mail-session over local unix sockets
-5. **Lifecycle management** — tracks active sessions, idle reaping, connection
+5. **Lifecycle management** -- tracks active sessions, idle reaping, connection
    counting
-6. **Delivery routing** — for SMTP delivery, spawns mail-session in oneshot
+6. **Delivery routing** -- for SMTP delivery, spawns mail-session in oneshot
    mode with the recipient's uid/gid
 
 ## gRPC Service Design
@@ -95,7 +95,7 @@ Protocol handler → session manager connections use mTLS:
 - This authenticates the *service* (this is a legitimate protocol handler), not
   the *user* (that's what Login() does)
 
-For single-host deployments using unix sockets, mTLS is unnecessary — socket
+For single-host deployments using unix sockets, mTLS is unnecessary -- socket
 file permissions provide access control.
 
 ## Process Lifecycle
@@ -178,7 +178,7 @@ the DeliveryService directly. For each delivery, it:
 ### Phase 4: scmp native client
 
 - scmp connects directly to the session manager (it's already gRPC-native)
-- No protocol translation needed — scmp speaks the same gRPC services
+- No protocol translation needed -- scmp speaks the same gRPC services
 
 ## Security Properties
 
@@ -193,7 +193,7 @@ the DeliveryService directly. For each delivery, it:
 
 ## High Availability
 
-The session manager is stateless — its only state is an in-memory session
+The session manager is stateless -- its only state is an in-memory session
 registry (which mail-session processes are running, who's connected). This
 makes HA straightforward: there is no distributed state to coordinate.
 
@@ -201,7 +201,7 @@ makes HA straightforward: there is no distributed state to coordinate.
 
 Systemd restart. Session manager comes back with an empty registry. Protocol
 handlers reconnect, re-authenticate, get new mail-session instances. Users see
-a brief interruption — IMAP clients reconnect automatically, SMTP deliveries
+a brief interruption -- IMAP clients reconnect automatically, SMTP deliveries
 queue and retry. No data loss. Same failure model as any stateless reverse
 proxy.
 
@@ -232,13 +232,13 @@ session-manager (standby, host-b) ──┘
 
 Maildir is NFS-safe by design: one file per message, no shared index files, no
 file locking. Delivery uses `rename()` from `tmp/` to `new/`, which is atomic
-on NFS. mail-session's operations — `readdir()`, `open()/read()`,
-`rename()`, `unlink()` — are all NFS-safe. The only concern is `readdir()`
+on NFS. mail-session's operations -- `readdir()`, `open()/read()`,
+`rename()`, `unlink()` -- are all NFS-safe. The only concern is `readdir()`
 latency on large mailboxes over NFS, which is a performance issue (mitigated by
 session reuse and caching), not a correctness issue.
 
 Failover via keepalived or DNS. The standby session manager starts up and
-spawns fresh sessions — no state to transfer.
+spawns fresh sessions -- no state to transfer.
 
 **Active-passive with block replication**
 
@@ -250,7 +250,7 @@ with local-disk performance. More operational complexity.
 Application-level mail replication (Dovecot dsync style) is extremely complex
 and unnecessary. Storage redundancy belongs in the infrastructure layer. The
 session manager's statelessness means the application layer doesn't need to
-participate in failover — it just starts up and serves.
+participate in failover -- it just starts up and serves.
 
 ## Open Questions
 

@@ -50,7 +50,7 @@ pop3d / imapd (nonroot, binds no privileged ports)
 ### Port binding
 
 All listeners run as nonroot (container uid 65532). Port mapping is handled
-entirely by Docker — the container listens on unprivileged ports and the host
+entirely by Docker -- the container listens on unprivileged ports and the host
 maps them to the standard mail ports (25, 465, 587, 110, 995, 143, 993).
 No `CAP_NET_BIND_SERVICE` or root is required.
 
@@ -61,7 +61,7 @@ No `CAP_NET_BIND_SERVICE` or root is required.
 - Uids and gids are allocated from a global monotonic counter managed by webadmin
 - The counter is stored in the data root and updated atomically (write + rename)
 - Uids and gids are never reused after deletion
-- There is no separation of ranges between domain gids and user uids — the
+- There is no separation of ranges between domain gids and user uids -- the
   counter is shared and values are large enough that artificial partitioning
   would only add complexity
 
@@ -78,7 +78,7 @@ No `CAP_NET_BIND_SERVICE` or root is required.
 username:argon2id-hash:mailbox:uid
 ```
 
-The domain gid is not stored per-user — it is read from the domain's
+The domain gid is not stored per-user -- it is read from the domain's
 `config.toml`. The gid is set on the spawned process by the dispatcher using
 the domain config, not from the passwd entry.
 
@@ -92,7 +92,7 @@ domains/{domain}/users/{user}/        drwx------  {user-uid}:{domain-gid}
 ```
 
 The setgid bit on domain and users directories ensures new files inherit the
-domain gid. User maildirs are `700` — only the user uid can read them.
+domain gid. User maildirs are `700` -- only the user uid can read them.
 
 ## Inter-Process Communication
 
@@ -101,18 +101,18 @@ domain gid. User maildirs are `700` — only the user uid can read them.
 All communication between protocol handlers and mail-session uses protobuf/gRPC
 over unix domain sockets. mail-session exposes four gRPC services:
 
-- **MailboxService** — message retrieval and management (List, Stat, Fetch,
+- **MailboxService** -- message retrieval and management (List, Stat, Fetch,
   Append, Copy, Move, SetFlags, Expunge, Rescan, Delete, Undelete, Commit)
-- **FolderService** — folder management (ListFolders, CreateFolder,
+- **FolderService** -- folder management (ListFolders, CreateFolder,
   DeleteFolder, RenameFolder)
-- **DeliveryService** — inbound delivery with structured results (replaces
+- **DeliveryService** -- inbound delivery with structured results (replaces
   mail-deliver)
-- **WatchService** — server-streaming notifications for IMAP IDLE
+- **WatchService** -- server-streaming notifications for IMAP IDLE
 
 The socket path is created by the parent dispatcher in a temporary directory
 with mode 0600 and communicated to the protocol handler via fd 5.
 
-RPCs are stateless — each request includes the folder name. The gRPC server
+RPCs are stateless -- each request includes the folder name. The gRPC server
 calls `sess.Select()` before each folder-scoped operation. IMAP's stateful
 SELECT is handled by the imapd protocol translator.
 
@@ -155,7 +155,7 @@ fd 5  read-only:  gRPC socket path from dispatcher
 
 - Handle the network conversation with the remote client
 - Validate recipient existence (SMTP 550) and relay policy
-- Do NOT resolve or handle uids — pass only addresses to the dispatcher
+- Do NOT resolve or handle uids -- pass only addresses to the dispatcher
 - Do NOT access mail data directly
 - For SMTP: deliver messages via gRPC DeliveryService to mail-session
 - For POP3/IMAP: access mailbox via gRPC MailboxService/FolderService
@@ -228,9 +228,9 @@ Configuration lookup order:
   two execution modes. The listener detects it was invoked with
   `--protocol-handler` and enters the protocol handler code path directly.
 - Uid/gid are set on spawned processes via `syscall.SysProcAttr.Credential`
-  in Go — this sets uid/gid on the child before any code runs.
+  in Go -- this sets uid/gid on the child before any code runs.
 - The monotonic uid counter file must be updated atomically: write to a temp
-  file, then `os.Rename` — rename is atomic on Linux.
+  file, then `os.Rename` -- rename is atomic on Linux.
 - The passwd file format adds a `uid` field to the existing
   `username:hash:mailbox` format. Existing entries without a uid field are
   treated as not yet migrated; webadmin assigns uids on next edit.

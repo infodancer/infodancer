@@ -81,7 +81,7 @@ incremental backup (borgmatic, restic). Mixing them in one tree means
 either backing up everything at mail-data frequency (wasteful) or risking
 stale config backups.
 
-**Separate storage characteristics.** Config is small and read-heavy —
+**Separate storage characteristics.** Config is small and read-heavy --
 it can live on the root filesystem or a fast SSD. Mail data grows
 unboundedly and benefits from larger, cheaper storage with its own
 monitoring and quota management.
