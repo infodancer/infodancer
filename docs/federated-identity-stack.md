@@ -1,5 +1,5 @@
 # Federated Identity & Email Stack
-*Speculative architecture document — vision, not roadmap*
+*Speculative architecture document -- vision, not roadmap*
 *Last updated: 2026-03-01*
 
 > This document describes the long-term identity and deployment vision for the infodancer stack.
@@ -15,7 +15,7 @@ A self-hosted, turnkey stack where pulling a set of Docker images and logging in
 - Hosted email domains with competently managed PKI
 - OIDC identity for those domains, auto-discoverable by standard clients
 - Web authentication for sites you build, with single sign-on across all of them
-- Federation with any other instance of this stack (or any standards-compliant system) — automatically, via DNS and OIDC discovery, no registration or approval required
+- Federation with any other instance of this stack (or any standards-compliant system) -- automatically, via DNS and OIDC discovery, no registration or approval required
 
 The core principle: **your email address is your identity, and the domain in your address is the authority for that identity.** This is what OAuth and OIDC were designed to enable. We implement it properly.
 
@@ -28,7 +28,7 @@ The current state:
 - Identity is effectively controlled by three companies (Google, Microsoft, Apple)
 - "Login with X" outsources authentication to whoever has the biggest OAuth button
 - Self-hosted email is technically possible but operationally punishing (PKI, DKIM, DMARC, deliverability)
-- Running your own identity provider requires Keycloak or Zitadel — serious infrastructure for a non-trivial operational burden
+- Running your own identity provider requires Keycloak or Zitadel -- serious infrastructure for a non-trivial operational burden
 - Federated identity exists as a standard but not as a usable product for small operators
 
 What we're building changes the unit of operation: a single `docker compose up` that produces a fully functional, standards-compliant node in a decentralized identity and email network.
@@ -162,7 +162,7 @@ Two instances of this stack federate automatically:
 
 1. `alice@instance-a.net` tries to log into an app protected by `instance-b.net`'s webauth
 2. webauth at instance-b discovers instance-a's OIDC endpoint via WebFinger
-3. Standard OIDC authorization code flow — no prior arrangement required
+3. Standard OIDC authorization code flow -- no prior arrangement required
 4. alice authenticates at her home instance, instance-b gets a verified identity claim
 
 The trust model is DNS: if you control the domain, you control the OIDC endpoint for that domain. Domain ownership is the root of trust, not a central registry.
@@ -172,9 +172,9 @@ The trust model is DNS: if you control the domain, you control the OIDC endpoint
 ## What This Is Not
 
 - Not a replacement for existing large-scale mail providers for people who don't want to self-host
-- Not trying to federate with Google, Microsoft, or Apple — they can discover us if they choose to implement standard OIDC discovery; we're not pursuing integration
+- Not trying to federate with Google, Microsoft, or Apple -- they can discover us if they choose to implement standard OIDC discovery; we're not pursuing integration
 - Not ActivityPub / Mastodon (though the identity model is philosophically aligned)
-- Not a commercial product — this is infrastructure for people who want to own their stack
+- Not a commercial product -- this is infrastructure for people who want to own their stack
 
 ---
 
@@ -186,4 +186,4 @@ The trust model is DNS: if you control the domain, you control the OIDC endpoint
 
 **Key distribution for E2E encrypted mail:** msgstore uses per-user encryption keys. Publishing public keys for E2E encrypted mail (e.g., via autocrypt, WKD) so external senders can encrypt to our users is a separate problem from identity. Tracked in msgstore's encryption design.
 
-**DNS management:** The stack can generate correct DNS records but can't apply them unless DNS is also managed locally (e.g., running PowerDNS or CoreDNS). For externally managed DNS (Cloudflare, Route53), the admin UI presents the records to copy. Full automation requires DNS provider API integration — a rabbit hole best deferred.
+**DNS management:** The stack can generate correct DNS records but can't apply them unless DNS is also managed locally (e.g., running PowerDNS or CoreDNS). For externally managed DNS (Cloudflare, Route53), the admin UI presents the records to copy. Full automation requires DNS provider API integration -- a rabbit hole best deferred.

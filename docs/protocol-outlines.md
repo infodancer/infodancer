@@ -1,5 +1,5 @@
 # Protocol Outlines: C2S and S2S
-*Editorial discussion document — problems and options, not decisions*
+*Editorial discussion document -- problems and options, not decisions*
 *Last updated: 2026-02-19*
 
 ## Decisions
@@ -7,15 +7,15 @@
 | Topic | Decision |
 |---|---|
 | Domain discovery | DNS SRV records (`_mail._tcp.domain`). See below. |
-| SRV service label | `mail` — `_mail._tcp`. See namespace note below. |
+| SRV service label | `mail` -- `_mail._tcp`. See namespace note below. |
 
-**SRV namespace note:** SRV service names are governed by IANA under [RFC 6335](https://www.rfc-editor.org/rfc/rfc6335) (the Service Name and Transport Protocol Port Number Registry). `_mail` does not appear to be formally registered for any existing protocol, but we are squatting on it until/unless a formal registration is pursued. For development and early deployment this is fine; for a published standard, registration with IANA would be required. The registration process is straightforward — submit a request, IANA reviews for conflicts. Port number registration would accompany it. Worth doing before any public announcement.
+**SRV namespace note:** SRV service names are governed by IANA under [RFC 6335](https://www.rfc-editor.org/rfc/rfc6335) (the Service Name and Transport Protocol Port Number Registry). `_mail` does not appear to be formally registered for any existing protocol, but we are squatting on it until/unless a formal registration is pursued. For development and early deployment this is fine; for a published standard, registration with IANA would be required. The registration process is straightforward -- submit a request, IANA reviews for conflicts. Port number registration would accompany it. Worth doing before any public announcement.
 
-These outlines enumerate the design problems each protocol must solve and the leading options for each. This is not a specification — it is a set of open questions intended to drive editorial discussion before the specification phase begins.
+These outlines enumerate the design problems each protocol must solve and the leading options for each. This is not a specification -- it is a set of open questions intended to drive editorial discussion before the specification phase begins.
 
 The two protocol split is established in the main requirements document:
 - **S2S (Server-to-Server)**: All inter-domain communication. Clients never speak this protocol.
-- **C2S (Client-to-Server)**: All communication between a user's client and their own domain server. Client has exactly one server relationship — its own domain.
+- **C2S (Client-to-Server)**: All communication between a user's client and their own domain server. Client has exactly one server relationship -- its own domain.
 
 ---
 
@@ -33,7 +33,7 @@ A sending server resolves `_mail._tcp.{domain}` to find the receiving server's h
 
 **If no SRV record exists:** fall back to SMTP bridge. This is acceptable for the coexistence period and correctly routes legacy traffic to legacy infrastructure.
 
-**If a DNS provider doesn't support SRV records:** our target market is small operators running their own infrastructure. They choose their DNS provider. SRV support is table stakes — switch providers. This is not a burden we will carry in the protocol.
+**If a DNS provider doesn't support SRV records:** our target market is small operators running their own infrastructure. They choose their DNS provider. SRV support is table stakes -- switch providers. This is not a burden we will carry in the protocol.
 
 **On IM2000's prime-number MX approach:** clever as a transition marker during SMTP coexistence, and worth acknowledging in the specification for historical context. Not appropriate as a primary discovery mechanism for a formal protocol. See the extended discussion at the end of this document.
 
@@ -47,13 +47,13 @@ Notifications are specified as encrypted UDP. The details matter for reliability
 
 **Options:**
 
-- **A. Raw UDP** — Minimal, lightweight. Sender retransmits on backoff. No connection state. NAT traversal handled by addressing receiving server's public IP directly. No built-in encryption at transport layer — encryption is at the payload layer per the requirements doc.
+- **A. Raw UDP** -- Minimal, lightweight. Sender retransmits on backoff. No connection state. NAT traversal handled by addressing receiving server's public IP directly. No built-in encryption at transport layer -- encryption is at the payload layer per the requirements doc.
 
-- **B. QUIC** — Reliable UDP with built-in TLS 1.3. Handles retransmission internally. Multiplexed streams. NAT traversal friendlier. More complex to implement. May be overkill if notification is truly fire-and-forget.
+- **B. QUIC** -- Reliable UDP with built-in TLS 1.3. Handles retransmission internally. Multiplexed streams. NAT traversal friendlier. More complex to implement. May be overkill if notification is truly fire-and-forget.
 
-- **C. UDP notifications + separate TCP/QUIC for fetch** — Notifications are one-way UDP fire-and-forget; message fetch uses a reliable request/response channel. Matches the asymmetric nature: notifications are inherently lossy by design, fetches must not be.
+- **C. UDP notifications + separate TCP/QUIC for fetch** -- Notifications are one-way UDP fire-and-forget; message fetch uses a reliable request/response channel. Matches the asymmetric nature: notifications are inherently lossy by design, fetches must not be.
 
-- **D. All TLS/TCP** — Simpler implementation, more universally supported, no UDP firewall issues. Heavier per notification. Loses the lightweight notification model.
+- **D. All TLS/TCP** -- Simpler implementation, more universally supported, no UDP firewall issues. Heavier per notification. Loses the lightweight notification model.
 
 **Note:** The requirements doc specifies "no rejection response to notifications." This rules out anything that requires a handshake before notification delivery.
 
@@ -65,15 +65,15 @@ How does a receiving server verify who is sending a notification or responding t
 
 **Options:**
 
-- **A. TLS client certificates tied to domain keys** — Domain presents its signing key as a TLS client certificate. Server verifies certificate against published domain key. Strong binding between transport identity and messaging identity.
+- **A. TLS client certificates tied to domain keys** -- Domain presents its signing key as a TLS client certificate. Server verifies certificate against published domain key. Strong binding between transport identity and messaging identity.
 
-- **B. Signed notification payloads only** — Notifications are signed by sender domain key; transport-layer identity is not verified. Simpler, works over UDP. Notification forgery is detectable but doesn't prevent amplification abuse.
+- **B. Signed notification payloads only** -- Notifications are signed by sender domain key; transport-layer identity is not verified. Simpler, works over UDP. Notification forgery is detectable but doesn't prevent amplification abuse.
 
-- **C. Challenge-response on fetch** — Sender's transit server issues a signed challenge when a fetch arrives; requestor must sign with their domain key. Fetch channel authenticated; notification channel authenticated by signature only.
+- **C. Challenge-response on fetch** -- Sender's transit server issues a signed challenge when a fetch arrives; requestor must sign with their domain key. Fetch channel authenticated; notification channel authenticated by signature only.
 
-- **D. HMAC tokens derived from shared domain reputation** — Domains that have exchanged messages generate a shared secret for cheaper verification. Cold-start requires option A or B. Reduces cryptographic overhead for established relationships.
+- **D. HMAC tokens derived from shared domain reputation** -- Domains that have exchanged messages generate a shared secret for cheaper verification. Cold-start requires option A or B. Reduces cryptographic overhead for established relationships.
 
-- **E. None at notification layer** — Spam filtering and msgcoin balance handle abuse. Notification authenticity is verified at payload layer. Simplest, relies entirely on economic disincentives. Appropriate if the economics are trusted to work.
+- **E. None at notification layer** -- Spam filtering and msgcoin balance handle abuse. Notification authenticity is verified at payload layer. Simplest, relies entirely on economic disincentives. Appropriate if the economics are trusted to work.
 
 ---
 
@@ -83,13 +83,13 @@ How does a recipient server (or client directly) fetch a message by ID from a se
 
 **Options:**
 
-- **A. HTTPS REST** — `GET /message/{id}` with domain authentication header. Simple, proxiable, CDN-cacheable (message ID as capability token fits perfectly). Requires HTTPS infrastructure on every S2S server. High-latency overhead for small messages but acceptable for large payloads.
+- **A. HTTPS REST** -- `GET /message/{id}` with domain authentication header. Simple, proxiable, CDN-cacheable (message ID as capability token fits perfectly). Requires HTTPS infrastructure on every S2S server. High-latency overhead for small messages but acceptable for large payloads.
 
-- **B. Custom binary protocol over TLS** — Minimizes overhead, purpose-built. Higher implementation burden, no off-the-shelf tooling.
+- **B. Custom binary protocol over TLS** -- Minimizes overhead, purpose-built. Higher implementation burden, no off-the-shelf tooling.
 
-- **C. QUIC streams** — One connection, multiple concurrent fetches over multiplexed streams. Good for batch fetching. QUIC library required.
+- **C. QUIC streams** -- One connection, multiple concurrent fetches over multiplexed streams. Good for batch fetching. QUIC library required.
 
-- **D. HTTPS with range requests** — Allows partial fetch and CDN support trivially. Useful for large file-type messages.
+- **D. HTTPS with range requests** -- Allows partial fetch and CDN support trivially. Useful for large file-type messages.
 
 **Note:** The capability model in the requirements doc (message IDs as capability tokens, CDN-compatible) strongly favors HTTPS/REST. This is worth evaluating carefully.
 
@@ -101,11 +101,11 @@ Which servers are permitted to retrieve a given message from transit storage?
 
 **Options:**
 
-- **A. Capability token only** — Knowing the message ID is sufficient to retrieve ciphertext. No authentication required. Any server can cache and serve any blob it has. Maximum cacheability.
+- **A. Capability token only** -- Knowing the message ID is sufficient to retrieve ciphertext. No authentication required. Any server can cache and serve any blob it has. Maximum cacheability.
 
-- **B. Message ID + requester domain authentication** — Sender verifies requester is the intended recipient's server. Limits who can fetch. Recipient domain must be known at send time.
+- **B. Message ID + requester domain authentication** -- Sender verifies requester is the intended recipient's server. Limits who can fetch. Recipient domain must be known at send time.
 
-- **C. Two-phase** — Anyone can retrieve ciphertext; only authorized parties can retrieve the content decryption key. Separates delivery from decryption access.
+- **C. Two-phase** -- Anyone can retrieve ciphertext; only authorized parties can retrieve the content decryption key. Separates delivery from decryption access.
 
 ---
 
@@ -115,11 +115,11 @@ When a gateway accepts a message and assumes notification responsibility, how is
 
 **Options:**
 
-- **A. Signed acknowledgment** — Gateway signs a receipt with its domain key: "I have accepted responsibility for message ID X for recipient domain Y." Sender can verify and purge from their transit queue.
+- **A. Signed acknowledgment** -- Gateway signs a receipt with its domain key: "I have accepted responsibility for message ID X for recipient domain Y." Sender can verify and purge from their transit queue.
 
-- **B. Implicit transfer** — Sender infers transfer when gateway takes over retransmission. No explicit protocol message. Simpler but harder to audit.
+- **B. Implicit transfer** -- Sender infers transfer when gateway takes over retransmission. No explicit protocol message. Simpler but harder to audit.
 
-- **C. Transfer receipt + expiry** — Gateway issues receipt and declares the expiry it will honor, which may differ from original sender's expiry. Recipient domain now has visibility into gateway-declared delivery window.
+- **C. Transfer receipt + expiry** -- Gateway issues receipt and declares the expiry it will honor, which may differ from original sender's expiry. Recipient domain now has visibility into gateway-declared delivery window.
 
 ---
 
@@ -129,13 +129,13 @@ What is the minimum information in a notification packet? (Requirements doc defe
 
 **Options:**
 
-- **A. Message ID + sender domain only** — Recipient domain looks up message by ID. Minimal exposure. Recipient hash must be in the encrypted payload.
+- **A. Message ID + sender domain only** -- Recipient domain looks up message by ID. Minimal exposure. Recipient hash must be in the encrypted payload.
 
-- **B. Message ID + sender domain + recipient hash** — Allows receiving server to route to correct user's pending queue without decrypting. Recipient hash is already opaque per the hashed addressing model.
+- **B. Message ID + sender domain + recipient hash** -- Allows receiving server to route to correct user's pending queue without decrypting. Recipient hash is already opaque per the hashed addressing model.
 
-- **C. Add MIME type hint** — Lets recipient server make pull/discard decisions without fetching. Useful for file-type messages. Slightly more metadata exposed.
+- **C. Add MIME type hint** -- Lets recipient server make pull/discard decisions without fetching. Useful for file-type messages. Slightly more metadata exposed.
 
-- **D. Fully opaque** — Just "you have pending mail from someone, check by pulling a challenge token." Maximum privacy. Maximum complexity. Likely impractical for first version.
+- **D. Fully opaque** -- Just "you have pending mail from someone, check by pulling a challenge token." Maximum privacy. Maximum complexity. Likely impractical for first version.
 
 ---
 
@@ -145,13 +145,13 @@ Where do domains publish their public keys and policy metadata?
 
 **Options:**
 
-- **A. DNS TXT records** — Consistent with DKIM/DMARC. Good tooling. Size limits constrain what can be published. Key material may exceed TXT record limits; fingerprint + pointer to full record may be needed.
+- **A. DNS TXT records** -- Consistent with DKIM/DMARC. Good tooling. Size limits constrain what can be published. Key material may exceed TXT record limits; fingerprint + pointer to full record may be needed.
 
-- **B. Well-known HTTPS endpoint** — `/.well-known/messaging-keys`. No size limit. Adds HTTP dependency. CDN-cacheable. Easy to update without DNS propagation delay.
+- **B. Well-known HTTPS endpoint** -- `/.well-known/messaging-keys`. No size limit. Adds HTTP dependency. CDN-cacheable. Easy to update without DNS propagation delay.
 
-- **C. Combined** — DNS TXT contains fingerprint and well-known URL; HTTPS contains full key material. DNS fingerprint allows verification without trusting the HTTPS response.
+- **C. Combined** -- DNS TXT contains fingerprint and well-known URL; HTTPS contains full key material. DNS fingerprint allows verification without trusting the HTTPS response.
 
-- **D. Dedicated key server** — Separate domain (e.g., `keys.example.com`) serves key material. Consistent with existing key server models. Another service to operate.
+- **D. Dedicated key server** -- Separate domain (e.g., `keys.example.com`) serves key material. Consistent with existing key server models. Another service to operate.
 
 ---
 
@@ -161,13 +161,13 @@ How do servers negotiate protocol version?
 
 **Options:**
 
-- **A. Version in DNS/well-known record** — Advertised at discovery time. Client knows before connecting which versions server supports.
+- **A. Version in DNS/well-known record** -- Advertised at discovery time. Client knows before connecting which versions server supports.
 
-- **B. TLS ALPN extension** — Protocol version negotiated during TLS handshake. Well-established for HTTP/2, HTTP/3. Requires registered ALPN identifiers.
+- **B. TLS ALPN extension** -- Protocol version negotiated during TLS handshake. Well-established for HTTP/2, HTTP/3. Requires registered ALPN identifiers.
 
-- **C. Version field in notification/fetch headers** — Version declared per-message. Allows gradual rollout within a deployed server. Complex.
+- **C. Version field in notification/fetch headers** -- Version declared per-message. Allows gradual rollout within a deployed server. Complex.
 
-- **D. Separate DNS records per version** — `_msgs-v1._tcp.example.com`, `_msgs-v2._tcp.example.com`. Clean separation. DNS record proliferation.
+- **D. Separate DNS records per version** -- `_msgs-v1._tcp.example.com`, `_msgs-v2._tcp.example.com`. Clean separation. DNS record proliferation.
 
 ---
 
@@ -177,13 +177,13 @@ Domain-level ledgers are append-only signed chains. How do two domains share led
 
 **Options:**
 
-- **A. Pull on interaction** — When domain A fetches a message from domain B, it also pulls domain B's latest ledger state relevant to the interaction. Lazy synchronization.
+- **A. Pull on interaction** -- When domain A fetches a message from domain B, it also pulls domain B's latest ledger state relevant to the interaction. Lazy synchronization.
 
-- **B. Periodic gossip** — Domains periodically push ledger summaries to known correspondents. More timely but adds overhead.
+- **B. Periodic gossip** -- Domains periodically push ledger summaries to known correspondents. More timely but adds overhead.
 
-- **C. No synchronization** — Each domain maintains its own local ledger for its outbound behavior only. No consensus required. Reputation is purely local. Simplest; loses cross-domain reputation visibility entirely.
+- **C. No synchronization** -- Each domain maintains its own local ledger for its outbound behavior only. No consensus required. Reputation is purely local. Simplest; loses cross-domain reputation visibility entirely.
 
-- **D. On-demand query** — Domain B can query domain A's published ledger state via S2S request. Domain A decides what to publish.
+- **D. On-demand query** -- Domain B can query domain A's published ledger state via S2S request. Domain A decides what to publish.
 
 ---
 
@@ -195,13 +195,13 @@ What protocol carries C2S traffic?
 
 **Options:**
 
-- **A. HTTPS/REST + WebSocket for push** — Familiar, proxiable, works through corporate firewalls. Push via WebSocket. Most tooling exists. Versioning via URL path. REST semantics may be awkward for streaming message retrieval.
+- **A. HTTPS/REST + WebSocket for push** -- Familiar, proxiable, works through corporate firewalls. Push via WebSocket. Most tooling exists. Versioning via URL path. REST semantics may be awkward for streaming message retrieval.
 
-- **B. gRPC (HTTP/2 + protobuf)** — Bidirectional streaming, binary encoding, strong schema definition, auto-generated clients. Requires gRPC tooling on both sides. Excellent fit for the operation types. Less human-debuggable.
+- **B. gRPC (HTTP/2 + protobuf)** -- Bidirectional streaming, binary encoding, strong schema definition, auto-generated clients. Requires gRPC tooling on both sides. Excellent fit for the operation types. Less human-debuggable.
 
-- **C. QUIC with multiplexed streams** — One connection, independent streams per operation type (notifications, fetch, key management). Low latency, NAT-friendly. New library dependency. Best long-term for native clients; worst for web clients today.
+- **C. QUIC with multiplexed streams** -- One connection, independent streams per operation type (notifications, fetch, key management). Low latency, NAT-friendly. New library dependency. Best long-term for native clients; worst for web clients today.
 
-- **D. Custom TLS binary** — Maximum control over encoding. Highest implementation burden. No off-the-shelf tooling.
+- **D. Custom TLS binary** -- Maximum control over encoding. Highest implementation burden. No off-the-shelf tooling.
 
 **Practical note:** Web clients want HTTPS/REST. Native desktop/mobile clients want something more efficient. These may want different answers. A versioned HTTPS API serves both, with an optional binary/gRPC binding for native clients.
 
@@ -213,17 +213,17 @@ How does a client prove it is an authorized user of the domain?
 
 **Options:**
 
-- **A. Username + password → session token** — Familiar, universally supported. Password transmitted over TLS. TOTP/hardware key as second factor. Session tokens rotated on use.
+- **A. Username + password → session token** -- Familiar, universally supported. Password transmitted over TLS. TOTP/hardware key as second factor. Session tokens rotated on use.
 
-- **B. Client TLS certificate** — User's key pair used as TLS client cert. Cryptographically strong, no password. Distribution problem: getting the cert onto new devices requires a separate ceremony. Fits well with the key management model already in the protocol.
+- **B. Client TLS certificate** -- User's key pair used as TLS client cert. Cryptographically strong, no password. Distribution problem: getting the cert onto new devices requires a separate ceremony. Fits well with the key management model already in the protocol.
 
-- **C. Passkey / WebAuthn** — Phishing-resistant, no shared secret. Platform-native UX on modern devices. Requires browser or platform support. Not universally available on all client types (headless, CLI).
+- **C. Passkey / WebAuthn** -- Phishing-resistant, no shared secret. Platform-native UX on modern devices. Requires browser or platform support. Not universally available on all client types (headless, CLI).
 
-- **D. Session token + device token** — Server issues a long-lived device token and short-lived session tokens. Device registration is a distinct ceremony. Revocation is per-device.
+- **D. Session token + device token** -- Server issues a long-lived device token and short-lived session tokens. Device registration is a distinct ceremony. Revocation is per-device.
 
-- **E. OAuth2 / OIDC for third-party clients** — Domain acts as authorization server. Third-party clients request scoped tokens. Standard model for mail clients that aren't the canonical client. Overhead for single-domain deployments.
+- **E. OAuth2 / OIDC for third-party clients** -- Domain acts as authorization server. Third-party clients request scoped tokens. Standard model for mail clients that aren't the canonical client. Overhead for single-domain deployments.
 
-**Note:** Legacy gateway clients using IMAP/SMTP will authenticate via existing mechanisms — C2S auth only applies to native new-protocol clients.
+**Note:** Legacy gateway clients using IMAP/SMTP will authenticate via existing mechanisms -- C2S auth only applies to native new-protocol clients.
 
 ---
 
@@ -233,13 +233,13 @@ How does a client hand off an outbound message to its server?
 
 **Options:**
 
-- **A. Single-shot encrypted submission** — Client submits complete envelope + encrypted payload in one request. Server validates envelope fields and queues for S2S delivery. Simple. Full message must be buffered before submission.
+- **A. Single-shot encrypted submission** -- Client submits complete envelope + encrypted payload in one request. Server validates envelope fields and queues for S2S delivery. Simple. Full message must be buffered before submission.
 
-- **B. Streaming upload** — Client streams payload to server, server writes to transit store. Better for large file-type messages. Requires the server to handle partial uploads.
+- **B. Streaming upload** -- Client streams payload to server, server writes to transit store. Better for large file-type messages. Requires the server to handle partial uploads.
 
-- **C. Two-phase: reserve ID, then upload** — Client requests a message ID from server first, then uploads payload separately. Allows client to include the message ID in linked messages (reference messages for file transfer) before upload completes. More round trips.
+- **C. Two-phase: reserve ID, then upload** -- Client requests a message ID from server first, then uploads payload separately. Allows client to include the message ID in linked messages (reference messages for file transfer) before upload completes. More round trips.
 
-- **D. Multipart** — Envelope and payload submitted as multipart; server splits them. Familiar from HTTP. Awkward for binary payloads.
+- **D. Multipart** -- Envelope and payload submitted as multipart; server splits them. Familiar from HTTP. Awkward for binary payloads.
 
 ---
 
@@ -249,13 +249,13 @@ How does a client list and fetch messages from the server's store?
 
 **Options:**
 
-- **A. Paged list + per-message fetch** — `GET /messages?folder=inbox&after={cursor}` returns a page of message summaries; client fetches full payload per message. Simple, cacheable. N+1 pattern for loading a full folder.
+- **A. Paged list + per-message fetch** -- `GET /messages?folder=inbox&after={cursor}` returns a page of message summaries; client fetches full payload per message. Simple, cacheable. N+1 pattern for loading a full folder.
 
-- **B. Batch fetch** — Client requests a list of message IDs and gets all payloads in one response. More efficient for initial sync. Large responses.
+- **B. Batch fetch** -- Client requests a list of message IDs and gets all payloads in one response. More efficient for initial sync. Large responses.
 
-- **C. Delta sync / changelog** — Server maintains a numbered event log (message received, message deleted, flags changed). Client stores its last-seen sequence number and requests changes since then. Multi-device consistency falls out naturally. More server state to maintain.
+- **C. Delta sync / changelog** -- Server maintains a numbered event log (message received, message deleted, flags changed). Client stores its last-seen sequence number and requests changes since then. Multi-device consistency falls out naturally. More server state to maintain.
 
-- **D. IMAP-like sync model** — UIDs, sequence numbers, FETCH operations, conditional requests. Proven for mail workload. Complex to implement correctly. Good bridge compatibility story.
+- **D. IMAP-like sync model** -- UIDs, sequence numbers, FETCH operations, conditional requests. Proven for mail workload. Complex to implement correctly. Good bridge compatibility story.
 
 ---
 
@@ -265,13 +265,13 @@ How are stored messages organized?
 
 **Options:**
 
-- **A. Hierarchical folders, server-side** — Server stores folder membership. Compatible with IMAP bridge. Server must maintain folder state per user.
+- **A. Hierarchical folders, server-side** -- Server stores folder membership. Compatible with IMAP bridge. Server must maintain folder state per user.
 
-- **B. Tags/labels, server-side** — Messages have sets of tags. More flexible than folders. Server maintains tag index. "Inbox" is a tag.
+- **B. Tags/labels, server-side** -- Messages have sets of tags. More flexible than folders. Server maintains tag index. "Inbox" is a tag.
 
-- **C. Client-side only** — Server stores a flat collection of messages with metadata. Clients organize locally. Zero server complexity. Bad for multi-device: each device has different organization. Not compatible with IMAP bridge.
+- **C. Client-side only** -- Server stores a flat collection of messages with metadata. Clients organize locally. Zero server complexity. Bad for multi-device: each device has different organization. Not compatible with IMAP bridge.
 
-- **D. Folders as first-class + labels as extension** — Folder hierarchy for compatibility; label support added on top. More complex but covers both use cases.
+- **D. Folders as first-class + labels as extension** -- Folder hierarchy for compatibility; label support added on top. More complex but covers both use cases.
 
 ---
 
@@ -281,15 +281,15 @@ How does the server alert a client that a new message has arrived or a notificat
 
 **Options:**
 
-- **A. WebSocket long-poll** — Client maintains a persistent WebSocket; server pushes notification objects. Works through most firewalls. Requires server to maintain per-client connection state.
+- **A. WebSocket long-poll** -- Client maintains a persistent WebSocket; server pushes notification objects. Works through most firewalls. Requires server to maintain per-client connection state.
 
-- **B. Server-Sent Events (SSE)** — HTTP/2-native unidirectional streaming from server to client. Simpler than WebSocket. Read-only push; client uses separate requests for commands.
+- **B. Server-Sent Events (SSE)** -- HTTP/2-native unidirectional streaming from server to client. Simpler than WebSocket. Read-only push; client uses separate requests for commands.
 
-- **C. Client polling** — Client polls on a schedule. Simplest server implementation. Not real-time. Fine for batch email behavior; bad for IM-like latency expectations.
+- **C. Client polling** -- Client polls on a schedule. Simplest server implementation. Not real-time. Fine for batch email behavior; bad for IM-like latency expectations.
 
-- **D. OS push (APNs, FCM)** — Native mobile push. Requires third-party intermediary (Apple, Google). Privacy implications. Client device must be registered with third party.
+- **D. OS push (APNs, FCM)** -- Native mobile push. Requires third-party intermediary (Apple, Google). Privacy implications. Client device must be registered with third party.
 
-- **E. QUIC streams** — Multiplexed bidirectional streams on a persistent QUIC connection. Best long-term for native clients. Not available from browser JS today.
+- **E. QUIC streams** -- Multiplexed bidirectional streams on a persistent QUIC connection. Best long-term for native clients. Not available from browser JS today.
 
 ---
 
@@ -299,13 +299,13 @@ The client generates and tracks hashed recipient addresses for privacy. The serv
 
 **Options:**
 
-- **A. Client registers hashes with server** — Client tells server: "watch for notifications addressed to this hash." Server maintains a hash table per user. Server knows which hashes belong to which user.
+- **A. Client registers hashes with server** -- Client tells server: "watch for notifications addressed to this hash." Server maintains a hash table per user. Server knows which hashes belong to which user.
 
-- **B. Blind server** — Server stores all incoming notification hashes. Client periodically polls: "anything for hash X?" Server returns matching message IDs. Server never associates hashes with users. Slower lookup, more private. Must handle hash table growth.
+- **B. Blind server** -- Server stores all incoming notification hashes. Client periodically polls: "anything for hash X?" Server returns matching message IDs. Server never associates hashes with users. Slower lookup, more private. Must handle hash table growth.
 
-- **C. Per-sender registration** — Client registers a specific (sender, hash) pair. More granular. Server can correlate sender with hash for that sender. Acceptable tradeoff if sender identity is known at receipt time.
+- **C. Per-sender registration** -- Client registers a specific (sender, hash) pair. More granular. Server can correlate sender with hash for that sender. Acceptable tradeoff if sender identity is known at receipt time.
 
-- **D. Privacy proxy model** — Server knows nothing about hashes. Proxy handles the hash→user lookup. Maximum privacy. Requires operating or trusting a proxy.
+- **D. Privacy proxy model** -- Server knows nothing about hashes. Proxy handles the hash→user lookup. Maximum privacy. Requires operating or trusting a proxy.
 
 ---
 
@@ -315,13 +315,13 @@ User has multiple clients on multiple devices. All should see consistent state.
 
 **Options:**
 
-- **A. Server-side state, clients are views** — All state (messages, folder membership, flags, read status) lives on server. Clients request state on connect. Simplest model. Requires persistent server state per user.
+- **A. Server-side state, clients are views** -- All state (messages, folder membership, flags, read status) lives on server. Clients request state on connect. Simplest model. Requires persistent server state per user.
 
-- **B. Event log** — Server maintains a per-user append-only event log. Clients store their last-seen sequence. On reconnect, client requests events since last sequence. Eventual consistency. Works well offline.
+- **B. Event log** -- Server maintains a per-user append-only event log. Clients store their last-seen sequence. On reconnect, client requests events since last sequence. Eventual consistency. Works well offline.
 
-- **C. Per-device encrypted copies** — Server stores encrypted message per device. Each device has its own "mailbox." Adding a new device requires re-delivering. POP3 model. No cross-device sync of read/delete state.
+- **C. Per-device encrypted copies** -- Server stores encrypted message per device. Each device has its own "mailbox." Adding a new device requires re-delivering. POP3 model. No cross-device sync of read/delete state.
 
-- **D. Hybrid: server state + client-cached encrypted copies** — Server holds structural state (UIDs, flags, folder membership); clients hold encrypted payloads locally. New device gets structural state from server, re-fetches payloads as needed.
+- **D. Hybrid: server state + client-cached encrypted copies** -- Server holds structural state (UIDs, flags, folder membership); clients hold encrypted payloads locally. New device gets structural state from server, re-fetches payloads as needed.
 
 ---
 
@@ -339,11 +339,11 @@ Client manages keys through the C2S interface.
 
 **Options:**
 
-- **A. Dedicated key management API** — Separate endpoint group for all key operations. Clean separation from messaging. Clients that only do key management need only implement this subset.
+- **A. Dedicated key management API** -- Separate endpoint group for all key operations. Clean separation from messaging. Clients that only do key management need only implement this subset.
 
-- **B. Integrated into message protocol** — Key operations are messages to a special system address. Reuses message delivery infrastructure. Awkward for operations that need immediate consistency (revocation).
+- **B. Integrated into message protocol** -- Key operations are messages to a special system address. Reuses message delivery infrastructure. Awkward for operations that need immediate consistency (revocation).
 
-- **C. Separate key management protocol** — Entirely out of band. Not recommended — splits the client implementation needlessly.
+- **C. Separate key management protocol** -- Entirely out of band. Not recommended -- splits the client implementation needlessly.
 
 ---
 
@@ -353,11 +353,11 @@ Client configures per-sender pull preferences, reputation thresholds, retention 
 
 **Options:**
 
-- **A. Structured settings API** — Typed endpoints per policy domain. Easy to validate, document, and version. More endpoints to implement.
+- **A. Structured settings API** -- Typed endpoints per policy domain. Easy to validate, document, and version. More endpoints to implement.
 
-- **B. Policy document** — Client submits a structured JSON/CBOR policy document. Server validates schema. Flexible, easy to extend. Full document replaced or patched on update.
+- **B. Policy document** -- Client submits a structured JSON/CBOR policy document. Server validates schema. Flexible, easy to extend. Full document replaced or patched on update.
 
-- **C. Per-sender preference API** — Pull preference is set per-sender-domain with a sensible default. Policy document covers everything else. Hybrid approach reflecting the fact that per-sender preferences will be very common.
+- **C. Per-sender preference API** -- Pull preference is set per-sender-domain with a sensible default. Policy document covers everything else. Hybrid approach reflecting the fact that per-sender preferences will be very common.
 
 ---
 
@@ -367,32 +367,32 @@ Native full clients, legacy gateway clients, and minimal clients need different 
 
 **Options:**
 
-- **A. Capability flags on connect** — Server advertises capabilities; client requests subset. Client declares its type (native, gateway, minimal). Established model (IMAP CAPABILITY, ESMTP extensions).
+- **A. Capability flags on connect** -- Server advertises capabilities; client requests subset. Client declares its type (native, gateway, minimal). Established model (IMAP CAPABILITY, ESMTP extensions).
 
-- **B. API versioning** — v1 endpoints for baseline; v2 for full feature set. Clients use the version they support. Clean but leads to version fragmentation.
+- **B. API versioning** -- v1 endpoints for baseline; v2 for full feature set. Clients use the version they support. Clean but leads to version fragmentation.
 
-- **C. Feature flags in auth response** — Server includes feature list in authentication response. Simple, one round trip.
+- **C. Feature flags in auth response** -- Server includes feature list in authentication response. Simple, one round trip.
 
 ---
 
 ### Problem 12: Filter Rule Storage
 
-The server cannot filter messages — it holds ciphertext, hashed recipient addresses, and no reject channel, so Sieve-style server-side filtering is impossible by design. Filtering is a client operation, after decryption. But users have multiple clients (Problem 8), and filtering rules maintained per-device drift. The legacy stack's answer to rule management is ManageSieve — a whole separate protocol on its own port (4190).
+The server cannot filter messages -- it holds ciphertext, hashed recipient addresses, and no reject channel, so Sieve-style server-side filtering is impossible by design. Filtering is a client operation, after decryption. But users have multiple clients (Problem 8), and filtering rules maintained per-device drift. The legacy stack's answer to rule management is ManageSieve -- a whole separate protocol on its own port (4190).
 
-**Position:** the server stores the user's filter rules as one canonical, encrypted document; clients fetch, execute, and update them through C2S. The server never reads the rules — it stores an opaque blob like any other user data. No separate protocol, no additional port: rule storage is designed into C2S rather than bolted on the way ManageSieve was bolted onto the IMAP ecosystem.
+**Position:** the server stores the user's filter rules as one canonical, encrypted document; clients fetch, execute, and update them through C2S. The server never reads the rules -- it stores an opaque blob like any other user data. No separate protocol, no additional port: rule storage is designed into C2S rather than bolted on the way ManageSieve was bolted onto the IMAP ecosystem.
 
 **Options:**
 
-- **A. Opaque encrypted blob with version counter** — Server stores one blob per user, encrypted client-side. Compare-and-swap on a version counter resolves concurrent updates from two devices. Simplest; server learns nothing, not even rule count.
+- **A. Opaque encrypted blob with version counter** -- Server stores one blob per user, encrypted client-side. Compare-and-swap on a version counter resolves concurrent updates from two devices. Simplest; server learns nothing, not even rule count.
 
-- **B. Synced via the multi-device event log** — Rule changes are events in the Problem 8 sync mechanism (if option B/D is chosen there). Rules converge the same way read/flag state does. No separate storage surface, but couples rule storage to the sync design.
+- **B. Synced via the multi-device event log** -- Rule changes are events in the Problem 8 sync mechanism (if option B/D is chosen there). Rules converge the same way read/flag state does. No separate storage surface, but couples rule storage to the sync design.
 
-- **C. Named encrypted documents** — Generalize: server stores a small namespace of client-encrypted configuration documents (filter rules, client settings, signature blocks), each versioned. Filter rules become one entry. Slightly more API for much more reuse.
+- **C. Named encrypted documents** -- Generalize: server stores a small namespace of client-encrypted configuration documents (filter rules, client settings, signature blocks), each versioned. Filter rules become one entry. Slightly more API for much more reuse.
 
 **Notes:**
-- Rule format is a client concern, opaque to the protocol — clients of the same vendor share a format; a standard format can emerge later without protocol changes.
+- Rule format is a client concern, opaque to the protocol -- clients of the same vendor share a format; a standard format can emerge later without protocol changes.
 - Escrow-mandatory domains can technically read stored rules (they hold the keys); covered by the existing escrow disclosure, no new disclosure needed.
-- Pull preferences (Problem 10) remain server-side policy — they act on envelope-visible data before fetch. Filter rules act on plaintext after fetch. The two layers are complementary, not redundant.
+- Pull preferences (Problem 10) remain server-side policy -- they act on envelope-visible data before fetch. Filter rules act on plaintext after fetch. The two layers are complementary, not redundant.
 
 ---
 
@@ -402,7 +402,7 @@ The server cannot filter messages — it holds ciphertext, hashed recipient addr
 
 Every federating messaging protocol must solve: given a domain name like `example.com`, how does a sending server find the actual server IP and port to talk to?
 
-Email solved this with MX records — simple, works, but MX is email-specific and carries SMTP semantics. A new protocol needs its own discovery mechanism. This decision has major adoption implications.
+Email solved this with MX records -- simple, works, but MX is email-specific and carries SMTP semantics. A new protocol needs its own discovery mechanism. This decision has major adoption implications.
 
 ---
 
@@ -420,14 +420,14 @@ DJB proposed that IM2000 servers signal support via MX record priority values. S
 - Existing DNS infrastructure handles it unchanged
 
 **Arguments for:**
-- Zero DNS operator changes — works with any DNS infrastructure that supports MX (which is all of them)
+- Zero DNS operator changes -- works with any DNS infrastructure that supports MX (which is all of them)
 - Transparent fallback to SMTP is automatic and deterministic
 - No coordination with DNS registrars, hosting providers, or DNS tooling vendors
 - Fastest possible adoption path for early deployers
 - DJB's track record (qmail, djbdns) suggests the approach is deployable in practice
 
 **Arguments against:**
-- Semantics are implicit convention, not protocol — nothing formally assigns prime vs. composite to IM2000 vs. SMTP
+- Semantics are implicit convention, not protocol -- nothing formally assigns prime vs. composite to IM2000 vs. SMTP
 - MX is already overloaded; mixing IM2000 semantics into it creates a maintenance burden
 - Prime priority signals nothing about which IM2000 version, what port, or what capabilities
 - A third protocol wanting similar treatment cannot use the same trick
@@ -455,13 +455,13 @@ _mail._tcp.example.com.   IN SRV  10 5 1234 msgs.example.com.
 - Explicit: service name, port, weight, target are all directly stated
 - Already deployed for XMPP (`_xmpp-server._tcp`), SIP, and others
 - Extensible: add more SRV records for new versions or services
-- No ambiguity — `_mail._tcp.example.com` unambiguously means "messaging service for this domain"
-- Separate from MX — no inherited SMTP semantics
+- No ambiguity -- `_mail._tcp.example.com` unambiguously means "messaging service for this domain"
+- Separate from MX -- no inherited SMTP semantics
 
 **Arguments against:**
 - Adoption friction is real. Many DNS control panels either don't support SRV or require manual zone file editing. Shared hosting often doesn't expose SRV at all.
 - Email administrators are not familiar with SRV (it's a voice/chat record to them)
-- SMTP explicitly chose MX over SRV in its history — there is institutional resistance
+- SMTP explicitly chose MX over SRV in its history -- there is institutional resistance
 - DNS propagation delay affects service changes (same as MX, but worth noting)
 - Many DNS libraries and utilities don't implement SRV lookup correctly
 - Self-hosting with common providers (Cloudflare, Route53, Namecheap) has variable SRV support
@@ -487,7 +487,7 @@ Returns JSON:
 ```
 
 **Arguments for:**
-- No DNS configuration changes required — works with any DNS that supports A records
+- No DNS configuration changes required -- works with any DNS that supports A records
 - Can carry capabilities, version, and multiple endpoints in one request
 - HTTPS is universally supported by hosting providers
 - Familiar deployment model (same family as `/.well-known/acme-challenge`, WebFinger, etc.)
@@ -495,13 +495,13 @@ Returns JSON:
 - Can be updated without DNS propagation delays
 
 **Arguments against:**
-- Adds HTTP dependency to bootstrapping — S2S server now needs to make an HTTP request before sending anything
+- Adds HTTP dependency to bootstrapping -- S2S server now needs to make an HTTP request before sending anything
 - If `example.com` is down, bootstrapping fails even if `msgs.example.com` is healthy
 - Corporate firewalls and proxies may interfere with the HTTPS request
-- TLS certificate for `example.com` must be valid — conflates web hosting with messaging infrastructure
+- TLS certificate for `example.com` must be valid -- conflates web hosting with messaging infrastructure
 - Chicken-and-egg: verifying the HTTPS response requires trusting the TLS cert, which is a different trust chain than the messaging key chain
 
-**Note:** The HTTPS and DNS TXT/SRV approaches are composable — DNS carries a fingerprint and pointer, HTTPS carries full metadata. This hybrid addresses the chicken-and-egg problem.
+**Note:** The HTTPS and DNS TXT/SRV approaches are composable -- DNS carries a fingerprint and pointer, HTTPS carries full metadata. This hybrid addresses the chicken-and-egg problem.
 
 ---
 
@@ -524,7 +524,7 @@ Returns JSON:
 - No SRV record found → fall back to SMTP (MX lookup, standard SMTP delivery)
 - SMTP fallback is the coexistence bridge, not a long-term target
 
-**On prime-number MX:** retains value as a transition signal during SMTP coexistence — a domain could publish both a valid SMTP MX and a prime-priority MX pointing to a server that speaks both protocols, allowing upgraded senders to negotiate the new protocol without a DNS SRV record. Worth specifying as an optional transition mechanism if the coexistence story demands it. Not the primary discovery mechanism.
+**On prime-number MX:** retains value as a transition signal during SMTP coexistence -- a domain could publish both a valid SMTP MX and a prime-priority MX pointing to a server that speaks both protocols, allowing upgraded senders to negotiate the new protocol without a DNS SRV record. Worth specifying as an optional transition mechanism if the coexistence story demands it. Not the primary discovery mechanism.
 
 **Service label:** `_mail._tcp`. IANA registration to be pursued before public announcement. See namespace note in Decisions section.
 

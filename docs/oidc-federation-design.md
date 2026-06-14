@@ -1,11 +1,11 @@
 # OIDC Federation Design
 
 **Status:** Authoritative
-**Repos affected:** infodancer/auth, infodancer/webauth, infodancer/oidclient, infodancer/herald, the websites (mjh, osg, sf, amy, hunterfamily, tf, …), and homelab (deployment). Any service that authenticates users.
+**Repos affected:** infodancer/auth, infodancer/webauth, infodancer/oidclient, infodancer/herald, the websites (mjh, osg, sf, amy, hunterfamily, tf, ...), and homelab (deployment). Any service that authenticates users.
 
 ---
 
-## Invariants — read these before changing anything
+## Invariants -- read these before changing anything
 
 We have re-derived and re-broken this since March. Three hard rules. If a change
 violates one, the change is wrong, not the rule.
@@ -15,7 +15,7 @@ violates one, the change is wrong, not the rule.
    *local passwd files*, and to expose that as standard OIDC + webfinger so others
    can discover and use it. It has no upstream, no "login with Google," no
    federation-client / upstream-callback code. A login at `auth.<domain>` is always
-   checked against that domain's passwd file — full stop. (If you find upstream/RP
+   checked against that domain's passwd file -- full stop. (If you find upstream/RP
    code in infodancer/auth, it does not belong there.)
 
 2. **webauth is the ONLY federation client, and it federates uniformly.**
@@ -24,7 +24,7 @@ violates one, the change is wrong, not the rule.
    authorization-code flow as an RP, and maps the result to a webauth identity.
 
    Login is **email-driven, not button-driven.** There are no "Login with X" buttons by
-   preference — the user types `alice@gmail.com` and webauth routes by domain, rather
+   preference -- the user types `alice@gmail.com` and webauth routes by domain, rather
    than presenting a wall of provider buttons. A visible button is a tolerated last
    resort, used only where a specific provider's flow genuinely cannot be initiated
    from the typed email alone.
@@ -40,10 +40,10 @@ violates one, the change is wrong, not the rule.
      dynamic registration, so they *cannot* be autodiscovered. Each is reached via a
      manually pre-registered OAuth/OIDC client (a one-time admin setup), still keyed by
      the typed email domain (`@gmail.com` → the configured Google client). This is a
-     small, explicit, admin-managed set — not a return to a hardcoded provider list for
+     small, explicit, admin-managed set -- not a return to a hardcoded provider list for
      every domain.
 
-   (Case 3 — no OIDC and not a configured provider — falls through to webauth's local DB.)
+   (Case 3 -- no OIDC and not a configured provider -- falls through to webauth's local DB.)
 
 3. **Websites are dumb relying parties.** They authenticate users either against
    their own local DB or by delegating to webauth via `oidclient`. They never talk to
@@ -74,7 +74,7 @@ These cases are **not interchangeable** and must not be collapsed into one syste
 - **Authoritative** for users whose domain's passwd file is managed by the infodancer mail stack.
 - Exposed publicly at `https://auth.<domain>` (one per domain) via Traefik.
 - Serves all standard OIDC endpoints: discovery, JWKS, authorize, token, userinfo, logout.
-- Supports RFC 7591 dynamic client registration — **open, no bearer token required**.
+- Supports RFC 7591 dynamic client registration -- **open, no bearer token required**.
 - Host-based domain routing: `auth.infodancer.net` → serves the `infodancer.net` domain entry.
 
 **Used by:** webauth (for case 1), and any third party who wants to implement "Login with infodancer.net".
@@ -130,17 +130,17 @@ Issue webauth JWT to Herald
 
 ### Discovery probe rules
 
-- HTTPS only — never probe HTTP endpoints for discovery.
+- HTTPS only -- never probe HTTP endpoints for discovery.
 - Set a short timeout (5s) to avoid blocking the login form on slow/dead domains.
 - Cache the discovery doc per domain (1-hour TTL already implemented in `upstreamoidc/`).
 - If the discovery doc is present but `registration_endpoint` is absent, the domain
-  supports OIDC but not dynamic registration — fall through to local SQLite.
+  supports OIDC but not dynamic registration -- fall through to local SQLite.
 
 ### Dynamic registration (RFC 7591)
 
 - Webauth POSTs to `registration_endpoint` with its callback URI.
 - **No bearer token is required** for auth-oidc or any correctly configured open provider.
-- The client_id returned is stable (auth-oidc derives it via HMAC from inputs) — re-registration
+- The client_id returned is stable (auth-oidc derives it via HMAC from inputs) -- re-registration
   after a server restart returns the same client_id.
 - If registration fails (4xx), fall through to local SQLite.
 
@@ -158,7 +158,7 @@ code injection and open redirect attacks.
 
 **2. PKCE (S256) required**
 Prevents authorization code interception attacks. Plain PKCE is rejected.
-No client secrets are issued for dynamic clients — PKCE is the only proof of possession.
+No client secrets are issued for dynamic clients -- PKCE is the only proof of possession.
 
 **3. HTTPS-only redirect URIs**
 Auth-oidc requires HTTPS for all redirect URIs except `localhost`/`127.0.0.1`
@@ -206,7 +206,7 @@ data_dir         = "/var/lib/auth-oidc"
 domain_data_path = "/opt/infodancer/domains"
 jwt_ttl_sec      = 3600
 session_ttl_sec  = 604800
-# No registration_token field — registration is open
+# No registration_token field -- registration is open
 ```
 
 No per-client or per-domain configuration is needed. The trusted domain list comes
@@ -223,7 +223,7 @@ admin-configured:
 - A **per-tenant federation mode** governs which domains may be used and whether
   accounts may be created: `auto` (probe OIDC; any domain may sign up), `allowlist`
   (only listed domains), `local` (no OIDC; local accounts only), `locked` (no account
-  creation — users provisioned out of band).
+  creation -- users provisioned out of band).
 
 ```toml
 [server]
@@ -231,7 +231,7 @@ listen   = ":8080"
 base_url = "https://webauth.infodancer.net"
 
 [database]
-url = "postgres://webauth:…@postgres:5432/webauth?sslmode=disable"
+url = "postgres://webauth:...@postgres:5432/webauth?sslmode=disable"
 
 [smtp]
 # ... email delivery for verification/reset flows
@@ -244,7 +244,7 @@ url = "postgres://webauth:…@postgres:5432/webauth?sslmode=disable"
 1. Add the domain to the infodancer mail stack (Ansible `mail_domains` list).
 2. Provision DNS: `auth.<domain>` → Traefik on docker-web.
 3. The auth-oidc config template auto-generates the Traefik route for the new domain.
-4. No changes needed in webauth — it will autodiscover `auth.<domain>` on first login.
+4. No changes needed in webauth -- it will autodiscover `auth.<domain>` on first login.
 
 ---
 

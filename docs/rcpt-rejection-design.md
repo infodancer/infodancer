@@ -10,8 +10,8 @@ attacks against a domain produce a confirmed list of valid mailboxes.
 
 Additionally, rejecting at RCPT TO means the message body is never received for
 unknown recipients, so there is no opportunity to feed it to rspamd for Bayes
-training. Messages sent exclusively to nonexistent addresses are — with near
-certainty — spam, and represent a free, high-confidence training signal that is
+training. Messages sent exclusively to nonexistent addresses are -- with near
+certainty -- spam, and represent a free, high-confidence training signal that is
 currently discarded.
 
 ## Design
@@ -119,7 +119,7 @@ false. This is sufficient because:
 smtpd enforces exactly one recipient per message (`452 One recipient at a
 time` after the first RCPT TO). This is a permanent constraint, not subject
 to future relaxation. It simplifies `data` mode considerably: every message
-has exactly one recipient, so the post-DATA decision is binary — the
+has exactly one recipient, so the post-DATA decision is binary -- the
 recipient is either valid (deliver) or invalid (auto-learn + reject). There
 is no mixed valid/invalid case and no silent-drop scenario.
 
@@ -144,11 +144,11 @@ recipients are queued, not validated locally). No change needed.
 
 Add a counter for `recipient_rejection_mode` outcomes:
 
-- `rcpt_rejected_at_rcpt` — rejected during RCPT TO (rcpt mode)
-- `rcpt_rejected_at_data` — rejected after DATA (data mode)
-- `spamtrap_autolearn_total` — messages auto-learned as spam
-- `spamtrap_autolearn_skipped_rate_limit` — skipped due to rate limit
-- `spamtrap_autolearn_skipped_already_rejected` — skipped because rspamd
+- `rcpt_rejected_at_rcpt` -- rejected during RCPT TO (rcpt mode)
+- `rcpt_rejected_at_data` -- rejected after DATA (data mode)
+- `spamtrap_autolearn_total` -- messages auto-learned as spam
+- `spamtrap_autolearn_skipped_rate_limit` -- skipped due to rate limit
+- `spamtrap_autolearn_skipped_already_rejected` -- skipped because rspamd
   already rejected
 
 ## Implementation Plan
@@ -182,7 +182,7 @@ address existing if it matches **any** of:
 3. A catchall (`*`) forward rule
 
 This means forwarded addresses and catch-all targets are **never** fed to
-the spamtrap learner — they are treated as valid recipients. This is correct:
+the spamtrap learner -- they are treated as valid recipients. This is correct:
 mail that would actually be forwarded and delivered is not a reliable spam
 signal.
 
@@ -205,7 +205,7 @@ abuse:admin@example.com
 
 These forwards ensure RFC compliance without a catchall. All other
 addresses that don't match a mailbox or explicit forward are considered
-nonexistent — eligible for spamtrap auto-learning in `data` mode.
+nonexistent -- eligible for spamtrap auto-learning in `data` mode.
 
 The **webadmin setup wizard** should create these forwards by default when
 a new domain is added, prompting the admin to choose the target mailbox.
@@ -217,13 +217,13 @@ The webadmin dashboard should warn if any locally-served domain is missing
 - **data mode accepts more bytes from spammers.** The tradeoff is deliberate:
   we accept the bandwidth cost in exchange for address enumeration defense and
   free training data. The rspamd scan still applies, so reject-level spam is
-  still rejected — just after DATA instead of before.
+  still rejected -- just after DATA instead of before.
 - **Auto-learn poisoning.** A sophisticated attacker could send carefully
   crafted "clean-looking" messages to nonexistent addresses to pollute Bayes
   toward classifying legitimate patterns as spam. The rate limit and
   rspamd-score-below-reject-threshold guard mitigate this. Monitoring the
   `spamtrap_autolearn_total` metric over time will surface anomalies.
 - **Single-recipient enforcement eliminates backscatter.** Because there is
-  always exactly one recipient, the post-DATA rejection is unambiguous — the
+  always exactly one recipient, the post-DATA rejection is unambiguous -- the
   sending MTA receives the `550` directly and handles it. No bounce generation
   is ever needed.

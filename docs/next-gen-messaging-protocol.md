@@ -1,5 +1,5 @@
 # Next-Generation Federated Messaging Protocol
-*Working requirements document — in progress*
+*Working requirements document -- in progress*
 *Last updated: 2026-06-12*
 
 ## Problem Statement
@@ -23,7 +23,7 @@ The **adoption problem** is the real wall: any solution requiring simultaneous o
 **New protocol, federated by design, with traditional protocol bridges.**
 
 - Design without legacy constraints; provide SMTP/IMAP/POP3 bridges (lossy but functional)
-- Target small hosters as primary deployment unit — the mammals under the dinosaurs' feet
+- Target small hosters as primary deployment unit -- the mammals under the dinosaurs' feet
 - Federation decentralized by design, no central servers required
 - Do not require beating traditional email for adoption; solve the problems, let adoption follow
 
@@ -42,16 +42,16 @@ Proposed inverting storage responsibility: sender's server stores messages; reci
 
 ### Model
 
-Domains act as CAs for their own users — signing user public keys, asserting "this key belongs to this user at this domain." Domains may generate and escrow keys for non-technical user onboarding, but SHOULD allow users to generate their own private keys and submit only the public key for signing. Mandatory escrow domains must declare this publicly.
+Domains act as CAs for their own users -- signing user public keys, asserting "this key belongs to this user at this domain." Domains may generate and escrow keys for non-technical user onboarding, but SHOULD allow users to generate their own private keys and submit only the public key for signing. Mandatory escrow domains must declare this publicly.
 
 ### Key Discovery and Fingerprint Caching
 
 - Keys published by domain, signed by domain signing key
-- Fingerprint caching is **mandatory and automatic** for all correspondents — not opt-in
+- Fingerprint caching is **mandatory and automatic** for all correspondents -- not opt-in
 - Cached fingerprint checked on every communication; change triggers notification **before** sending
 - User must acknowledge key changes; may re-verify out-of-band
 - Cache timeout measured in years; resuming after timeout gives informational notice, not security alert
-- Client monitors its **own** published fingerprint on a schedule independent of send/receive activity; alerts immediately if domain changed it without user action — the user's client is their canary
+- Client monitors its **own** published fingerprint on a schedule independent of send/receive activity; alerts immediately if domain changed it without user action -- the user's client is their canary
 
 ### Key Rotation
 
@@ -59,7 +59,7 @@ First-class protocol operation: domain publishes revocation of old signature, ne
 
 ### Escrow Transparency
 
-Mandatory key escrow MUST be declared in domain's published metadata. Senders communicating with escrow-mandatory domain users receive a visible disclosure. With key escrow, the recipient's domain sees everything — unavoidable and disclosed.
+Mandatory key escrow MUST be declared in domain's published metadata. Senders communicating with escrow-mandatory domain users receive a visible disclosure. With key escrow, the recipient's domain sees everything -- unavoidable and disclosed.
 
 ### Published Key Record
 
@@ -82,7 +82,7 @@ Message ownership is shared and explicit:
 
 ### Transit vs. Store
 
-Explicit protocol-level separation — visible in the protocol, not an implementation detail.
+Explicit protocol-level separation -- visible in the protocol, not an implementation detail.
 
 | | Messages-in-Transit | Messages-in-Store |
 |---|---|---|
@@ -112,27 +112,27 @@ Sender bears storage cost for every message in transit until recipients accept o
 
 ### Payload
 
-Servers treat message payloads as **opaque bytes**. The protocol does not define or require a specific message body format. MIME type declared in the envelope is sender-asserted and client-validated — not protocol-verified. Valid types include `message/822` for bridge compatibility with existing email, or any other format including future formats. No protocol changes required to introduce new payload types.
+Servers treat message payloads as **opaque bytes**. The protocol does not define or require a specific message body format. MIME type declared in the envelope is sender-asserted and client-validated -- not protocol-verified. Valid types include `message/822` for bridge compatibility with existing email, or any other format including future formats. No protocol changes required to introduce new payload types.
 
 ### Envelope
 
-Protocol-defined. Servers operate only on envelopes. **Encrypted to the receiving domain** — intermediate servers see only the destination domain, nothing else.
+Protocol-defined. Servers operate only on envelopes. **Encrypted to the receiving domain** -- intermediate servers see only the destination domain, nothing else.
 
 **Required envelope fields:**
 
 | Field | Description |
 |---|---|
-| Destination domain | Outer routing target — only field visible to intermediate servers |
+| Destination domain | Outer routing target -- only field visible to intermediate servers |
 | Sender | Cryptographically bound sender identity (visible to destination domain only) |
 | Recipient | Hashed recipient address (see Metadata Privacy) |
 | Message ID | Globally unique, cryptographically random, protocol-generated |
-| Thread ID | Parent message ID if reply — protocol-level threading |
+| Thread ID | Parent message ID if reply -- protocol-level threading |
 | Payload MIME type | Declared content type (hint only, client-validated) |
 | Payload size | Byte count of encrypted payload |
-| Payload hash | Hash of encrypted payload — integrity verification without decryption |
+| Payload hash | Hash of encrypted payload -- integrity verification without decryption |
 | Timestamp | Sender-attested |
 | Envelope signature | Sender's signature over all envelope fields |
-| Transit expiry | Per message ID — different messages may carry different expiry values |
+| Transit expiry | Per message ID -- different messages may carry different expiry values |
 | Flags | retraction, read-receipt-requested, escrow-disclosed |
 
 ### Integrity
@@ -146,7 +146,7 @@ Three independent mechanisms:
 
 ### Blind Intermediate Servers
 
-Intermediate servers are **blind caches** — they store and forward opaque encrypted blobs. They see only the destination domain. They cannot read sender identity, recipient address, or content without the destination domain's decryption keys. Intermediate servers store only messages from or to known clients.
+Intermediate servers are **blind caches** -- they store and forward opaque encrypted blobs. They see only the destination domain. They cannot read sender identity, recipient address, or content without the destination domain's decryption keys. Intermediate servers store only messages from or to known clients.
 
 ### Recipient Pull
 
@@ -168,7 +168,7 @@ The blind cache model handles high-latency or high-cost links (satellite, interp
 | Pull when requested | Notification recorded; user or client initiates fetch (default) |
 | Ignore notifications | Notification discarded without recording |
 
-Ignore notifications is an effective unsubscribe — the sender cannot distinguish between ignored, undelivered, and not-yet-pulled.
+Ignore notifications is an effective unsubscribe -- the sender cannot distinguish between ignored, undelivered, and not-yet-pulled.
 
 ## Message Notification
 
@@ -188,7 +188,7 @@ Sending server retransmits on exponential backoff until message is fetched or ex
 
 ### Responsibility Transfer
 
-If an intermediate gateway accepts a message, it accepts notification responsibility. Original sender's obligation ends. Gateway failure results in silent expiry — no bounce, no NDR.
+If an intermediate gateway accepts a message, it accepts notification responsibility. Original sender's obligation ends. Gateway failure results in silent expiry -- no bounce, no NDR.
 
 ### Delivery Inference
 
@@ -203,28 +203,28 @@ Fetch = delivered. Expiry without fetch = inferred failure. No explicit failure 
 | | Traditional SMTP | This Protocol |
 |---|---|---|
 | Decision point | Delivery time | Pull time |
-| Information available | Minimal — campaign just started | Full — campaign may be identified |
-| False positive risk | High | Lower — reputation has time to stabilize |
+| Information available | Minimal -- campaign just started | Full -- campaign may be identified |
+| False positive risk | High | Lower -- reputation has time to stabilize |
 | Spammer certainty | Knows immediately if delivered | Never knows if message will be pulled |
 
 The window between send and pull is exactly the window reputation systems need to identify campaigns.
 
 ### Reputation Sources
 
-Federated — no single authority. Recipient servers and clients choose which sources to consult and how to weight them.
+Federated -- no single authority. Recipient servers and clients choose which sources to consult and how to weight them.
 
 ### Already-Accepted Messages
 
-Reputation affects pull-time decisions only. Messages already accepted are not subject to retroactive reputation decisions — recipient's copy is their property.
+Reputation affects pull-time decisions only. Messages already accepted are not subject to retroactive reputation decisions -- recipient's copy is their property.
 
 ### Msgcoin: Voluntary Delivery Cost Accounting
 
-A voluntary, protocol-native accounting mechanism. Not a real currency — a signal extraction and reputation instrument.
+A voluntary, protocol-native accounting mechanism. Not a real currency -- a signal extraction and reputation instrument.
 
 **Mechanism:**
 1. Recipients declare a cost (in msgcoin) for receiving a message
 2. Senders offer what they are willing to pay to have the message read
-3. **Refund is automatic** — reading triggers automatic refund via client; no user action required
+3. **Refund is automatic** -- reading triggers automatic refund via client; no user action required
 4. Recipients **veto** by: deleting unread (no refund, weak negative signal) or marking spam (explicit negative signal, potential penalty reversed to sender)
 
 **Domain-level ledger:** Each domain maintains an append-only signed ledger (tamper-evident, no global consensus or proof-of-work required) tracking reputation balances for domains it interacts with.
@@ -233,7 +233,7 @@ A voluntary, protocol-native accounting mechanism. Not a real currency — a sig
 - Read + no veto → automatic refund → sender's effective cost approaches zero for wanted messages
 - Delete unread → weak negative signal
 - Mark spam → strong negative signal, potential penalty
-- Wealthy senders cannot sustain broad spam — balance depletes, floor reached
+- Wealthy senders cannot sustain broad spam -- balance depletes, floor reached
 - High-value messages paying above declared cost is the intended use case
 
 **Floor behavior and time decay:**
@@ -268,9 +268,9 @@ Handles all communication between user's client and their own domain server:
 - Key management
 - Push notification to client
 - Policy configuration (pull preferences, reputation thresholds, retention policies, hash address management)
-- Filter rule storage (planned — see below)
+- Filter rule storage (planned -- see below)
 
-Client has exactly one server relationship — its own domain.
+Client has exactly one server relationship -- its own domain.
 
 ### Filter Rule Storage (Planned)
 
@@ -279,14 +279,14 @@ The server cannot filter messages: it holds ciphertext and hashed recipient addr
 - Rules are encrypted client-side; the server stores an opaque blob and learns nothing (escrow-mandatory domains excepted, covered by the existing disclosure)
 - One canonical copy solves multi-device rule drift
 - Designed into C2S rather than spending another port on client-server configuration (contrast ManageSieve, a separate protocol on port 4190 bolted onto the IMAP ecosystem)
-- Rule format is opaque to the protocol — a client concern, standardizable later without protocol changes
+- Rule format is opaque to the protocol -- a client concern, standardizable later without protocol changes
 - Complementary to per-sender pull preferences, which remain server-side policy over envelope-visible data before fetch; filter rules act on plaintext after fetch
 
 See protocol-outlines.md C2S Problem 12 for the design options.
 
 ### Client Model
 
-**New native clients** encrypt before handoff — server receives ciphertext only, never holds plaintext (except on escrow-mandatory domains). Full feature access.
+**New native clients** encrypt before handoff -- server receives ciphertext only, never holds plaintext (except on escrow-mandatory domains). Full feature access.
 
 **Legacy gateway clients** connect via IMAP/SMTP/POP3 gateway. Gateway encrypts immediately on receipt before writing to disk. Plaintext exists only briefly in memory. Gateways SHOULD encrypt immediately on receipt and MUST NOT persist plaintext.
 
@@ -308,9 +308,9 @@ Maps the existing DNS delegation hierarchy into messaging trust without requirin
 
 | Level | Mechanism | Strength |
 |---|---|---|
-| Full chain | TLD signs domain; domain signs user | Strong — verifiable without trusting intermediates |
-| DNS-authenticated | Domain controls DNS records and publishes key material | Baseline — equivalent to DKIM/DMARC trust today |
-| Direct | Out-of-band fingerprint verification | Strongest — independent of all infrastructure |
+| Full chain | TLD signs domain; domain signs user | Strong -- verifiable without trusting intermediates |
+| DNS-authenticated | Domain controls DNS records and publishes key material | Baseline -- equivalent to DKIM/DMARC trust today |
+| Direct | Out-of-band fingerprint verification | Strongest -- independent of all infrastructure |
 
 TLD signing is **optional**. Chain depth is a visible trust signal in clients, not a binary allow/block decision.
 
@@ -326,12 +326,12 @@ Without key escrow, message delivery uses explicit encryption layers:
 
 1. **Payload layer**: Sender encrypts content directly to recipient's public key
 2. **Envelope layer**: Wrapped in delivery envelope, encrypted to receiving domain's key
-3. **Submission**: Sender's server sees destination domain and encrypted blob only — never plaintext
-4. **Receiving domain**: Decrypts envelope to find hashed recipient address — not actual identity
+3. **Submission**: Sender's server sees destination domain and encrypted blob only -- never plaintext
+4. **Receiving domain**: Decrypts envelope to find hashed recipient address -- not actual identity
 
 ### Client-Side Encryption
 
-New-style clients encrypt before handing off to their own server. The sender's domain is blind — it sees a destination domain and an encrypted blob, nothing more.
+New-style clients encrypt before handing off to their own server. The sender's domain is blind -- it sees a destination domain and an encrypted blob, nothing more.
 
 **Key escrow exception:** Escrow-mandatory domains necessarily access plaintext. Disclosed in domain metadata.
 
@@ -339,23 +339,23 @@ New-style clients encrypt before handing off to their own server. The sender's d
 
 ### Hashed Recipient Addressing
 
-The recipient field in the delivery envelope contains a **hash derived from user identity plus a per-sender identifier**. The receiving domain sees an opaque hash — no mapping to a user account. The domain is a blind store.
+The recipient field in the delivery envelope contains a **hash derived from user identity plus a per-sender identifier**. The receiving domain sees an opaque hash -- no mapping to a user account. The domain is a blind store.
 
 ### Bootstrap Hash Cascade
 
-**Phase 1 — First contact:**
+**Phase 1 -- First contact:**
 ```
 recipient_hash = KDF(Alice_pubkey, Bob_pubkey, "recipient-address", recipient_domain)
 ```
 Computable from published key material. No prior coordination required.
 
-**Phase 2 — Automatic upgrade (negotiated in first exchange):**
+**Phase 2 -- Automatic upgrade (negotiated in first exchange):**
 ```
 recipient_hash = KDF(shared_random, "recipient-address", recipient_domain)
 ```
 Clients negotiate random string in-band, switch automatically. No user action required.
 
-**Phase 3 — Optional published tokens:**
+**Phase 3 -- Optional published tokens:**
 Bob publishes single-use hash tokens in key material for maximum-privacy first contact. Optional protocol support.
 
 All three phases look identical at the domain's hash table.
@@ -372,7 +372,7 @@ All three phases look identical at the domain's hash table.
 
 ### Residual Metadata
 
-- **Traffic patterns**: Timing and frequency of connections. Out of scope — Tor-level anonymity is a different design space.
+- **Traffic patterns**: Timing and frequency of connections. Out of scope -- Tor-level anonymity is a different design space.
 - **Sender's domain**: Sees plaintext at composition time for legacy clients only.
 - **Proxy trust**: User trust decision.
 
@@ -382,14 +382,14 @@ File transfer requires no special protocol support. A file is a message with a n
 
 ### Reference Messages
 
-Senders transmit a reference message containing message IDs of associated file transfers — providing human context, grouping, and sender intent. Recipient client displays transfer metadata without fetching content.
+Senders transmit a reference message containing message IDs of associated file transfers -- providing human context, grouping, and sender intent. Recipient client displays transfer metadata without fetching content.
 
 ### Recipient Options
 
 1. Fetch directly
 2. Defer
-3. Delegate to server — optimal for large files and mobile clients
-4. Ignore — let transfer expire
+3. Delegate to server -- optimal for large files and mobile clients
+4. Ignore -- let transfer expire
 
 ### Separate Expiry Per Message
 
@@ -410,7 +410,7 @@ Cryptographically random, globally unique, protocol-generated (not sender-chosen
 
 ## Encryption at Rest
 
-Because servers treat payloads as opaque bytes and never require plaintext to function, **all messages are encrypted at rest by design** — not as a bolt-on feature.
+Because servers treat payloads as opaque bytes and never require plaintext to function, **all messages are encrypted at rest by design** -- not as a bolt-on feature.
 
 **Operational consequences:**
 - **Untrusted storage**: Blobs may be stored on untrusted third-party infrastructure
@@ -434,8 +434,8 @@ List server knows its subscribers. Manages distribution explicitly.
 5. Subscribers pull per their per-sender preference
 
 **Properties:**
-- List cannot forge sender identity — original signature preserved and verifiable
-- Joining is a trust decision — list server sees plaintext transiently; disclosed in subscription metadata
+- List cannot forge sender identity -- original signature preserved and verifiable
+- Joining is a trust decision -- list server sees plaintext transiently; disclosed in subscription metadata
 - Subscriber identities known to list operator, not to other subscribers or outside observers
 - Moderation between decryption and distribution
 - Non-subscriber messages silently ignored or held for moderation
@@ -458,17 +458,17 @@ Each manifest is encrypted to the current list key and contains content decrypti
 1. List generates new key
 2. New manifest encrypted with old key, contains new key inside
 3. Subscribers following the chain receive new key automatically
-4. Subscribers who lapsed receive no new key — natural access expiry
+4. Subscribers who lapsed receive no new key -- natural access expiry
 
 **Unsubscribe:** Stop polling. No server-side state change. No address confirmation leak.
 
-**New subscriber onboarding:** List operator sends current key encrypted to subscriber's public key — a direct message.
+**New subscriber onboarding:** List operator sends current key encrypted to subscriber's public key -- a direct message.
 
 **Revocation:** Rotate key at next manifest boundary.
 
 ### Pull Preferences Apply to Both Models
 
-Both models use notification — the list has no ability to force delivery. Per-sender pull preferences apply identically.
+Both models use notification -- the list has no ability to force delivery. Per-sender pull preferences apply identically.
 
 ### Ad-Hoc Lists
 
@@ -502,9 +502,9 @@ This is a principled free speech position. Every federated system that has attem
 
 Domain migration is a **first-class protocol operation**:
 - Old domain publishes a signed migration notice to known correspondents
-- Notice signed by both old domain and user's key — proves identity continuity
+- Notice signed by both old domain and user's key -- proves identity continuity
 - Correspondents' clients update cached addresses and fingerprints automatically
-- User's key pair is portable — same cryptographic identity continues at new domain
+- User's key pair is portable -- same cryptographic identity continues at new domain
 
 ### What This Protocol Does Not Do
 
@@ -512,12 +512,12 @@ Maintain blocklists, define abusive content, provide appeals processes, coordina
 
 ### Future Work: Federated Reputation Visibility
 
-*TBD — not required for core protocol.*
+*TBD -- not required for core protocol.*
 
 Opt-in web-of-trust reputation layer:
 - **Publication (opt-in)**: Domains publish sender reputation scores, potentially via DNS
 - **Consumption (opt-in)**: Domains consume others' published reputation, weighted by trust in publisher
-- **Trust derivation**: Derived from direct communication history — high volume + positive msgcoin signals = basis for trusting assessments
+- **Trust derivation**: Derived from direct communication history -- high volume + positive msgcoin signals = basis for trusting assessments
 - **Automatic trust accumulation**: Configurable threshold of exchange history triggers automatic weighting
 - **No central authority**: Graph of bilateral relationships, not a hierarchy
 
@@ -555,14 +555,14 @@ Opt-in web-of-trust reputation layer:
 
 ### What's Probably Unsolvable by Protocol
 
-- Adoption — network effects are social, not technical
-- Lookalike domain registration — DNS/registrar problem
-- Traffic analysis — Tor-level anonymity is a different design space
-- Determined well-resourced actors — economics hurt but don't eliminate
+- Adoption -- network effects are social, not technical
+- Lookalike domain registration -- DNS/registrar problem
+- Traffic analysis -- Tor-level anonymity is a different design space
+- Determined well-resourced actors -- economics hurt but don't eliminate
 
 ### What's Left to Design
 
-1. **Encryption model specifics** — multi-recipient key wrapping, forward secrecy, algorithm selection
-2. **Wire protocol** — binary format, versioning, extension mechanisms
-3. **Domain discovery** — ~~how does a sending server find the receiving server for a domain?~~ **Decided: DNS SRV (`_mail._tcp.domain`). No SRV → fall back to SMTP. See protocol-outlines.md.**
-4. **Reference implementation design** — minimal correct implementation targeted at small hosters
+1. **Encryption model specifics** -- multi-recipient key wrapping, forward secrecy, algorithm selection
+2. **Wire protocol** -- binary format, versioning, extension mechanisms
+3. **Domain discovery** -- ~~how does a sending server find the receiving server for a domain?~~ **Decided: DNS SRV (`_mail._tcp.domain`). No SRV → fall back to SMTP. See protocol-outlines.md.**
+4. **Reference implementation design** -- minimal correct implementation targeted at small hosters
