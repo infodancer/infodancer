@@ -34,6 +34,8 @@ Active development. Not yet production-ready for general use.
 
 Each project has its own repository with a CLAUDE.md and CONVENTIONS.md describing its architecture and coding standards. Issues and pull requests welcome.
 
+Docs use ASCII punctuation only (no smart quotes, em-dashes, or ellipsis glyphs). After cloning, enable the local guard with `git config core.hooksPath .githooks`; CI enforces the same rule on push and pull requests via the shared `ascii-punctuation` action.
+
 ## Web modules
 
 In addition to mail infrastructure, the org hosts a set of reusable Go web modules -- feature libraries that compose into personal and portfolio sites alongside a shared UI layer. See [docs/web-portfolio-architecture.md](docs/web-portfolio-architecture.md) for the planned shape of the stack, the layering, and the direction the existing consumer sites are heading.

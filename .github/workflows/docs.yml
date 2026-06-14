@@ -14,22 +14,6 @@ jobs:
     runs-on: [self-hosted, linux, ci]
     steps:
       - uses: actions/checkout@v6
-      - name: Reject smart punctuation in Markdown
-        run: |
-          # ASCII-only punctuation convention. Reject typographic dashes
-          # (en/em/figure/horizontal-bar), curly single and double quotes,
-          # the ellipsis glyph, primes, and the matching HTML entities.
-          # ASCII art (box-drawing U+2500+) is intentionally NOT matched.
-          pattern='[\x{2010}-\x{2015}\x{2018}\x{2019}\x{201C}\x{201D}\x{2026}\x{2032}\x{2033}]|&(mdash|ndash|lsquo|rsquo|ldquo|rdquo|hellip);'
-          files=$(git ls-files '*.md')
-          if [ -z "$files" ]; then
-            echo "No Markdown files to check."
-            exit 0
-          fi
-          hits=$(printf '%s\n' "$files" | xargs -d '\n' grep -nP "$pattern" || true)
-          if [ -n "$hits" ]; then
-            echo "::error::Smart punctuation found in Markdown. Use ASCII: -- for dashes, ' and \" for quotes, ... for ellipsis."
-            printf '%s\n' "$hits"
-            exit 1
-          fi
-          echo "Markdown punctuation is ASCII-clean."
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/ascii-punctuation
