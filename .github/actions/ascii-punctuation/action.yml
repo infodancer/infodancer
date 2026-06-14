@@ -1,0 +1,63 @@
+name: 'ASCII punctuation gate'
+description: >-
+  Fail when Markdown lines added by this push/PR contain typographic ("smart")
+  punctuation. Diff-scoped: legacy/untouched content never fails, nothing is
+  auto-converted. Shared by infodancer/maildancer and the mjh/sf/osg repos.
+  Requires the repo checked out with fetch-depth: 0 so the base is available.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        EVENT: ${{ github.event_name }}
+        BASE_REF: ${{ github.base_ref }}
+        BASE_SHA: ${{ github.event.before }}
+      run: |
+        set -uo pipefail
+        # U+2010..U+2015 dashes, U+2018/2019/201C/201D curly quotes,
+        # U+2026 ellipsis, U+2032/2033 primes, plus matching HTML entities.
+        pcre='[\x{2010}-\x{2015}\x{2018}\x{2019}\x{201C}\x{201D}\x{2026}\x{2032}\x{2033}]|&(mdash|ndash|lsquo|rsquo|ldquo|rdquo|hellip);'
+
+        if [ "$EVENT" = "pull_request" ] && [ -n "${BASE_REF:-}" ]; then
+          git fetch -q origin "$BASE_REF" || true
+          base="origin/$BASE_REF"
+        else
+          base="${BASE_SHA:-}"
+          if [ -z "$base" ] || ! git rev-parse -q --verify "${base}^{commit}" >/dev/null 2>&1; then
+            base="$(git rev-parse -q --verify 'HEAD^' || true)"
+          fi
+        fi
+        if [ -z "$base" ]; then
+          echo "No base commit to diff against; skipping."
+          exit 0
+        fi
+
+        files=$(git diff --name-only --diff-filter=ACM "$base...HEAD" -- '*.md' \
+          | grep -vE '(^|/)(vendor|_vendor|node_modules)/' || true)
+        if [ -z "$files" ]; then
+          echo "No first-party Markdown changes."
+          exit 0
+        fi
+
+        bad=0
+        while IFS= read -r f; do
+          [ -n "$f" ] || continue
+          hits=$(git diff "$base...HEAD" -U0 -- "$f" \
+            | grep -E '^\+' | grep -vE '^\+\+\+' \
+            | grep -nP "$pcre" || true)
+          if [ -n "$hits" ]; then
+            if [ "$bad" -eq 0 ]; then
+              echo "::error::Smart punctuation in added Markdown lines -- use ASCII (-- dashes, ' \" quotes, ... ellipsis):"
+            fi
+            echo "  $f"
+            printf '%s\n' "$hits" | sed 's/^/    + /'
+            bad=1
+          fi
+        done <<< "$files"
+
+        if [ "$bad" -ne 0 ]; then
+          echo "Fix the lines above by hand (or commit the change without the smart punctuation)."
+          exit 1
+        fi
+        echo "Added Markdown is ASCII-clean."
