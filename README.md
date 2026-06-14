@@ -4,7 +4,7 @@ Infodancer is a small open-source organization building mail server infrastructu
 
 ## Philosophy
 
-Email is one of the internet's foundational technologies — federated, open, and owned by no one. We think it should stay that way. The goal here is to make self-hosting mail practical for small operators: individuals, families, small organizations, and anyone else who would rather not hand their communication over to a large provider.
+Email is one of the internet's foundational technologies -- federated, open, and owned by no one. We think it should stay that way. The goal here is to make self-hosting mail practical for small operators: individuals, families, small organizations, and anyone else who would rather not hand their communication over to a large provider.
 
 We write Go. We prefer simple, auditable code over clever code. Security is a design requirement, not a feature. We use standard protocols where they serve us and aren't afraid to question them where they don't.
 
@@ -36,7 +36,7 @@ Each project has its own repository with a CLAUDE.md and CONVENTIONS.md describi
 
 ## Web modules
 
-In addition to mail infrastructure, the org hosts a set of reusable Go web modules — feature libraries that compose into personal and portfolio sites alongside a shared UI layer. See [docs/web-portfolio-architecture.md](docs/web-portfolio-architecture.md) for the planned shape of the stack, the layering, and the direction the existing consumer sites are heading.
+In addition to mail infrastructure, the org hosts a set of reusable Go web modules -- feature libraries that compose into personal and portfolio sites alongside a shared UI layer. See [docs/web-portfolio-architecture.md](docs/web-portfolio-architecture.md) for the planned shape of the stack, the layering, and the direction the existing consumer sites are heading.
 
 Active web modules: [oidclient](https://github.com/infodancer/oidclient), [webauth](https://github.com/infodancer/webauth), [faq](https://github.com/matthewjhunter/faq).
 
