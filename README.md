@@ -16,6 +16,7 @@ current state. Read the relevant one before changing the matching subsystem.
 |---|---|
 | [mail-security-model](docs/mail-security-model.md) | Process separation, privilege model, uid/gid allocation, the pipe protocol |
 | [encryption-design](docs/encryption-design.md) | At-rest encryption: key model, delivery and retrieval points, search without a decrypted cache |
+| [keyring-design](docs/keyring-design.md) | Client keyring and key-encryption-key (KEK): client-generated keys, wrap-slots, and the off/on/escrow trust postures |
 | [oidc-federation-design](docs/oidc-federation-design.md) | Auth stack design and security model (read before touching auth or webauth) |
 | [federated-identity-stack](docs/federated-identity-stack.md) | Identity federation overview |
 | [next-gen-messaging-protocol](docs/next-gen-messaging-protocol.md) | SCMP/SDMP design: end-to-end encryption, sender stores and recipient pulls |
