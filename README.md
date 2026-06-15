@@ -1,47 +1,38 @@
-# Infodancer
+# infodancer
 
-Infodancer is a small open-source organization building mail server infrastructure for people who prefer to run their own.
+Home of the **infodancer** organization: the cross-cutting design documents
+behind our self-hosted, federated mail and identity stack.
 
-## Philosophy
+For the project overview and the active repositories, see the
+[organization profile](https://github.com/infodancer). The mail server suite
+lives in [maildancer](https://github.com/infodancer/maildancer).
 
-Email is one of the internet's foundational technologies -- federated, open, and owned by no one. We think it should stay that way. The goal here is to make self-hosting mail practical for small operators: individuals, families, small organizations, and anyone else who would rather not hand their communication over to a large provider.
+## Design documents
 
-We write Go. We prefer simple, auditable code over clever code. Security is a design requirement, not a feature. We use standard protocols where they serve us and aren't afraid to question them where they don't.
+Living design docs -- the reasoning behind the architecture, not only its
+current state. Read the relevant one before changing the matching subsystem.
 
-## Projects
-
-| Project | Description |
+| Document | What it covers |
 |---|---|
-| [smtpd](https://github.com/infodancer/smtpd) | SMTP server for receiving mail |
-| [pop3d](https://github.com/infodancer/pop3d) | POP3 server for mail retrieval |
-| [imapd](https://github.com/infodancer/imapd) | IMAP server for mail access |
-| [msgstore](https://github.com/infodancer/msgstore) | Message storage library shared by all daemons |
-| [auth](https://github.com/infodancer/auth) | Shared authentication library |
-| [webadmin](https://github.com/infodancer/webadmin) | Web administration interface |
-
-## Design Goals
-
-- **Correct before clever.** Implement the protocol. Test it. Then optimize if necessary.
-- **Reject early.** Validate during the protocol conversation. Never generate bounces after the fact.
-- **Small operator first.** Configuration should be simple. Operational burden should be low.
-- **Secure by default.** TLS required, sane defaults, no legacy footguns enabled without explicit configuration.
-
-## Status
-
-Active development. Not yet production-ready for general use.
+| [mail-security-model](docs/mail-security-model.md) | Process separation, privilege model, uid/gid allocation, the pipe protocol |
+| [encryption-design](docs/encryption-design.md) | At-rest encryption: key model, delivery and retrieval points, search without a decrypted cache |
+| [oidc-federation-design](docs/oidc-federation-design.md) | Auth stack design and security model (read before touching auth or webauth) |
+| [federated-identity-stack](docs/federated-identity-stack.md) | Identity federation overview |
+| [next-gen-messaging-protocol](docs/next-gen-messaging-protocol.md) | SCMP/SDMP design: end-to-end encryption, sender stores and recipient pulls |
+| [protocol-outlines](docs/protocol-outlines.md) | Open protocol problems and options, ahead of specification |
+| [session-manager-design](docs/session-manager-design.md) | Session manager architecture |
+| [mail-session-deliver-merge](docs/mail-session-deliver-merge.md) | Merging the mail-session and delivery agents |
+| [queue-design](docs/queue-design.md) | Unified on-disk outbound queue |
+| [outbound-transport-routing](docs/outbound-transport-routing.md) | Per-sender-domain delivery transport routing |
+| [rcpt-rejection-design](docs/rcpt-rejection-design.md) | Recipient rejection strategy |
+| [dsn-bounce-design](docs/dsn-bounce-design.md) | DSN and bounce handling |
+| [uid-persistence-design](docs/uid-persistence-design.md) | UID allocation and persistence |
+| [deployment-filesystem](docs/deployment-filesystem.md) | Config and data filesystem split, Docker volume strategy |
+| [web-portfolio-architecture](docs/web-portfolio-architecture.md) | Reusable Go web modules and the shared UI layer |
 
 ## Contributing
 
-Each project has its own repository with a CLAUDE.md and CONVENTIONS.md describing its architecture and coding standards. Issues and pull requests welcome.
-
-Docs use ASCII punctuation only (no smart quotes, em-dashes, or ellipsis glyphs). After cloning, enable the local guard with `git config core.hooksPath .githooks`; CI enforces the same rule on push and pull requests via the shared `ascii-punctuation` action.
-
-## Web modules
-
-In addition to mail infrastructure, the org hosts a set of reusable Go web modules -- feature libraries that compose into personal and portfolio sites alongside a shared UI layer. See [docs/web-portfolio-architecture.md](docs/web-portfolio-architecture.md) for the planned shape of the stack, the layering, and the direction the existing consumer sites are heading.
-
-Active web modules: [oidclient](https://github.com/infodancer/oidclient), [webauth](https://github.com/infodancer/webauth), [faq](https://github.com/matthewjhunter/faq).
-
-## Research
-
-The `docs/` directory contains design research and protocol proposals, including longer-term thinking about where mail and web infrastructure should go.
+Issues and pull requests welcome. Docs use ASCII punctuation only (no smart
+quotes, em-dashes, or ellipsis glyphs). After cloning, enable the local guard
+with `git config core.hooksPath .githooks`; CI enforces the same rule on push
+and pull requests via the shared `ascii-punctuation` action.
