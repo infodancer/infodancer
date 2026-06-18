@@ -20,12 +20,15 @@ violates one, the change is wrong, not the rule.
    a value that a lower layer may override. Never put a uid or gid in any file
    that is deep-merged.
 
-2. **There is exactly one home for each, and exactly one writer.**
+2. **There is exactly one home for each, and exactly one code path that writes
+   it.**
    - Domain -> gid: the single top-level map `{config}/gid.toml`.
    - User -> uid: the per-domain map `{config}/{domain}/uid.toml`.
-   - `userctl` is the **only** thing that writes these maps. Nothing else
-     allocates, copies, or caches a uid/gid. The daemons read them; they never
-     write them.
+   - A single shared package owns reading and writing these maps. `userctl`
+     (CLI) and `webadmin` (web UI) are the two entry points, and both go through
+     that shared code -- neither touches the files directly. One place manages
+     it; two front doors. Nothing else allocates, copies, or caches a uid/gid.
+     The daemons read the maps; they never write them.
 
 3. **Allocate once; never reassign a live id.** Reassigning a gid orphans every
    file owned by the old group; reassigning a uid orphans a user's mail. The
@@ -37,6 +40,19 @@ violates one, the change is wrong, not the rule.
    keyrings, and the shared `.uid-counter`. It must not carry a `gid` of record:
    the data volume is cross-user and is the thing being protected, not the thing
    that defines the protection.
+
+5. **The auth *provider* is configuration; the local provider's identity tables
+   are not.** Which authentication/identity backend a domain uses -- local
+   passwd-files (the default), LDAP, a database -- is a hierarchical config
+   choice: a site-wide default in the top-level `config.toml`, optionally
+   overridden per domain. `gid.toml` and `uid.toml` are the identity store *of
+   the local passwd-files provider*; they apply only to domains using it. A
+   domain configured for LDAP or a database sources its users, uids, gids, and
+   credentials from that backend, and these files are not consulted for it.
+   The mechanism (which provider) respects the hierarchy; the uid/gid values a
+   given provider records do not. Auth configuration -- including LDAP/DB
+   connection settings -- always lives in the config tree, never the data tree,
+   exactly like `passwd`.
 
 If you are about to add a `gid` to `config.toml`, to the postmaster file, or to
 `{data}/{domain}/config.toml`, stop -- that is the exact mistake this document
@@ -50,9 +66,14 @@ Mail state splits into three kinds of thing. Only one of them is hierarchical.
 
 | Concern | Store | Hierarchical? | Secret? | Writer |
 |---|---|---|---|---|
-| **Identity** (uid/gid allocation) | `gid.toml`, `{domain}/uid.toml` | **No** -- flat, authoritative | No | `userctl` only |
-| **Credentials** (password hash) | `{domain}/passwd` | No -- flat per-domain | Yes | `userctl` only |
-| **Configuration** (auth/store/dkim/outbound/limits/dns/forwards) | `{domain}/config.toml` (+ site defaults) | **Yes** -- site -> domain -> user merge | No | postmaster / IaC |
+| **Identity** (uid/gid allocation, local provider) | `gid.toml`, `{domain}/uid.toml` | **No** -- flat, authoritative | No | shared identity pkg (`userctl` + `webadmin`) |
+| **Credentials** (password hash, local provider) | `{domain}/passwd` | No -- flat per-domain | Yes | shared identity pkg (`userctl` + `webadmin`) |
+| **Configuration** (auth provider + store/dkim/outbound/limits/dns/forwards) | `{domain}/config.toml` (+ site defaults) | **Yes** -- site -> domain -> user merge | No | postmaster / IaC |
+
+The Identity and Credentials rows describe the **local passwd-files provider**.
+A domain whose configured provider is LDAP or a database does not use these
+files at all -- its identities and credentials live in that backend. The
+*choice* of provider is the hierarchical Configuration row.
 
 ### Identity: `{config}/gid.toml` (domain -> gid)
 
@@ -95,6 +116,14 @@ The only file subject to the merge hierarchy. Holds `[auth]`, `[msgstore]`,
 (they are routing policy a domain/user may override) and stay here -- they are
 not identity.
 
+`[auth].type` selects the identity/credential provider -- local passwd-files by
+default, or `ldap` / `database`. That selection is hierarchical: a site-wide
+default here can be overridden for a single domain. When a non-local provider is
+selected for a domain, `gid.toml` / `uid.toml` / `passwd` do not apply to it --
+its users, uids, gids, and credentials come from the backend, configured (with
+its connection settings) in this same hierarchical config, never in the data
+tree.
+
 ---
 
 ## Resolution at spawn (`credentials.Lookup`)
@@ -113,9 +142,16 @@ hierarchical config and is orthogonal to identity.
 There is deliberately **no** config-tree-`Gid` seed, **no** data-tree override,
 and **no** postmaster-file override. Those three layered sources were the bug.
 
-## Allocation and repair (`userctl`)
+This is the resolution for the local passwd-files provider. A domain configured
+for a non-local provider resolves its credential of record (and any uid/gid the
+backend supplies) through that provider instead; `gid.toml` / `uid.toml` are not
+read for it.
 
-`userctl` is the sole writer. Two operations matter:
+## Allocation and repair (shared identity package; `userctl` + `webadmin`)
+
+A single shared package performs all allocation and repair; `userctl` and
+`webadmin` are entry points into it and never write the maps directly. Two
+operations matter (for the local passwd-files provider):
 
 - **Allocate** (`domain create`, `user add`): take the next id from
   `{data}/.uid-counter`, record it in `gid.toml` / `uid.toml`, create the data
