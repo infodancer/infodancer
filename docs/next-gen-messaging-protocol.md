@@ -1,6 +1,6 @@
 # Next-Generation Federated Messaging Protocol
 *Working requirements document -- in progress*
-*Last updated: 2026-06-12*
+*Last updated: 2026-06-19*
 
 ## Problem Statement
 
@@ -282,6 +282,10 @@ The server cannot filter messages: it holds ciphertext and hashed recipient addr
 - Rule format is opaque to the protocol -- a client concern, standardizable later without protocol changes
 - Complementary to per-sender pull preferences, which remain server-side policy over envelope-visible data before fetch; filter rules act on plaintext after fetch
 
+**Rule language: Sieve (RFC 5228).** Sieve is the concrete client-side contract for the opaque blob above -- stored and synced, never executed by the server. Native clients run it after decryption; legacy gateways run it locally while materializing the IMAP view (see Client Model). "Sieve" stays a client convention, not a protocol dependency: the server still sees only the encrypted blob, and a future client could choose another language without a protocol change.
+
+**Sync is a first-class C2S element, not a side channel.** Script get/put/activate is a defined C2S operation with **compare-and-swap on a monotonic version** (the same pattern as the keyring's `doc_version`), so two devices editing offline get last-writer-rejected-then-refetch rather than a silent clobber. Any merge semantics are a client concern layered on top; the protocol guarantees only that no update overwrites an unseen one.
+
 See protocol-outlines.md C2S Problem 12 for the design options.
 
 ### Client Model
@@ -289,6 +293,8 @@ See protocol-outlines.md C2S Problem 12 for the design options.
 **New native clients** encrypt before handoff -- server receives ciphertext only, never holds plaintext (except on escrow-mandatory domains). Full feature access.
 
 **Legacy gateway clients** connect via IMAP/SMTP/POP3 gateway. Gateway encrypts immediately on receipt before writing to disk. Plaintext exists only briefly in memory. Gateways SHOULD encrypt immediately on receipt and MUST NOT persist plaintext.
+
+Legacy filter management rides the same gateway: it exposes **ManageSieve (RFC 5804) on localhost only**, translating `PUTSCRIPT`/`GETSCRIPT`/`SETACTIVE` into the C2S filter element upstream, and -- since it already holds the keys and decrypts locally -- it is also the executor for the legacy client it serves. ManageSieve is **never a server-side daemon**: a plaintext-era management protocol belongs at the trust edge (the user's gateway), not in the server, which only ever stores the opaque blob. Native clients skip ManageSieve entirely and use the C2S element directly.
 
 Legacy gateways are provided for adoption, not as the intended end state.
 
