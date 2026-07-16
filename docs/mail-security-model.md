@@ -126,6 +126,14 @@ to defaults by design. Forwards resolve upstream in root-side session-manager;
 per-user keyrings live in the data tree beside the maildir. Do not "fix" a
 mail-session config-tree permission error by widening this model.
 
+**Invariant: no unsealed private key material in the config tree.** The tree
+is group-readable by design, so anything placed there is readable by every
+member of the read group. Private keys under `config/{domain}/keys/` are
+acceptable only because they are password-sealed (keyseal); an unsealed key
+written there is leaked to the read group the moment it lands. Unsealed
+secrets belong in the data tree under a 0700 per-user directory, or outside
+both trees entirely.
+
 auth-oidc runs as nonroot deliberately (it is the internet-facing IdP); a
 domain it cannot load at startup is served fail-closed rather than aborting
 init, and init fails only when no domain loads at all.
