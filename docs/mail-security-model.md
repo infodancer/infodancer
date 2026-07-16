@@ -103,22 +103,29 @@ stack: **auth-oidc**, the leaf IdP, reads each domain's `config.toml` and
 model:
 
 ```
-config/                               drwxr-s---  root:65532
-config/gid.toml                       -rw-r-----  root:65532
-config/{domain}/                      drwxr-s---  root:65532
-config/{domain}/config.toml           -rw-r-----  root:65532
-config/{domain}/passwd                -rw-r-----  root:65532
-config/{domain}/uid.toml              -rw-r-----  root:65532
-config/{domain}/keys/                 drwxr-s---  root:65532  (files 0640)
+config/                               drwxr-s---  webadmin:cfgread
+config/gid.toml                       -rw-r-----  webadmin:cfgread
+config/{domain}/                      drwxr-s---  webadmin:cfgread
+config/{domain}/config.toml           -rw-r-----  webadmin:cfgread
+config/{domain}/passwd                -rw-r-----  webadmin:cfgread
+config/{domain}/uid.toml              -rw-r-----  webadmin:cfgread
+config/{domain}/keys/                 drwxr-s---  webadmin:cfgread  (files 0640)
 ```
 
-Root is the only writer (webadmin, userctl, the id allocator); the group
-grants read to the IdP; no world bits, so passwd stays readable only by root
-and the IdP group. The setgid bit on the directories makes every file a root
-process writes later -- including temp+rename saves -- inherit the group
-without any cooperation from the write sites. Enforced at domain creation and
-by the fix-perms doctor (maildancer `internal/admin/perms.go`, issue
-maildancer#145).
+The webadmin service account (uid 905 in the all-in-one image) owns the tree
+because it is the writer; owning its writes is what lets it eventually run
+unprivileged. cfgread (gid 906) is a dedicated read group: membership is an
+explicit grant -- auth-oidc (distroless nonroot 65532) joins via compose
+`group_add`, queue-manager's account via image group membership -- and is
+deliberately NOT the distroless-nonroot gid, so merely running as distroless
+nonroot conveys nothing (maildancer#152; the original #145 model used
+root:65532 and is superseded). No world bits, so passwd stays readable only
+by the owner, root, and the read group. The setgid bit on the directories
+makes every file any writer creates later -- temp+rename saves, root-run
+userctl, the id allocator -- inherit the group without cooperation from the
+write sites; admin mutations additionally re-assert ownership on success.
+Enforced at domain creation and by the fix-perms doctor (maildancer
+`internal/admin/perms.go`, issues maildancer#145 + #152).
 
 mail-session (recipient uid) is deliberately **not** granted config-tree
 access: it cannot traverse these directories, and its domain loading degrades
