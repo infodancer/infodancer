@@ -94,6 +94,42 @@ domains/{domain}/users/{user}/        drwx------  {user-uid}:{domain-gid}
 The setgid bit on domain and users directories ensures new files inherit the
 domain gid. User maildirs are `700` -- only the user uid can read them.
 
+### Config-tree permissions
+
+The read-only config tree (domain config.toml, passwd, uid/gid maps, forwards,
+legacy flat keys) has a second, independent nonroot consumer beyond the mail
+stack: **auth-oidc**, the leaf IdP, reads each domain's `config.toml` and
+`passwd` as the distroless nonroot uid (65532) over a read-only mount. The
+model:
+
+```
+config/                               drwxr-s---  root:65532
+config/gid.toml                       -rw-r-----  root:65532
+config/{domain}/                      drwxr-s---  root:65532
+config/{domain}/config.toml           -rw-r-----  root:65532
+config/{domain}/passwd                -rw-r-----  root:65532
+config/{domain}/uid.toml              -rw-r-----  root:65532
+config/{domain}/keys/                 drwxr-s---  root:65532  (files 0640)
+```
+
+Root is the only writer (webadmin, userctl, the id allocator); the group
+grants read to the IdP; no world bits, so passwd stays readable only by root
+and the IdP group. The setgid bit on the directories makes every file a root
+process writes later -- including temp+rename saves -- inherit the group
+without any cooperation from the write sites. Enforced at domain creation and
+by the fix-perms doctor (maildancer `internal/admin/perms.go`, issue
+maildancer#145).
+
+mail-session (recipient uid) is deliberately **not** granted config-tree
+access: it cannot traverse these directories, and its domain loading degrades
+to defaults by design. Forwards resolve upstream in root-side session-manager;
+per-user keyrings live in the data tree beside the maildir. Do not "fix" a
+mail-session config-tree permission error by widening this model.
+
+auth-oidc runs as nonroot deliberately (it is the internet-facing IdP); a
+domain it cannot load at startup is served fail-closed rather than aborting
+init, and init fails only when no domain loads at all.
+
 ## Inter-Process Communication
 
 ### gRPC transport (protocol handler ↔ mail-session)
