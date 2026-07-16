@@ -88,9 +88,14 @@ overridden, never templated by IaC.
 "amyhunter.org"        = 10010
 ```
 
-Mode `0640`, owned `root:root`. Read directly by the spawn path
-(`credentials.Lookup`) -- if a domain has no entry, that is a hard error, not a
-default.
+Mode `0640`, owned `root:65532` (root writes; the config-tree read group --
+the distroless nonroot gid auth-oidc runs as -- reads; see the config-tree
+permissions section of mail-security-model.md). An earlier revision of this
+doc mandated `root:root`, which locked the nonroot auth-oidc reader out of
+the config tree and crash-looped the IdP; the group is now part of the model
+and is enforced by the perm doctor (maildancer `internal/admin/perms.go`).
+Read directly by the spawn path (`credentials.Lookup`) -- if a domain has no
+entry, that is a hard error, not a default.
 
 ### Identity: `{config}/{domain}/uid.toml` (user -> uid)
 
