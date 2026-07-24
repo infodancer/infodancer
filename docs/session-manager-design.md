@@ -200,10 +200,12 @@ makes HA straightforward: there is no distributed state to coordinate.
 ### Process failure
 
 Systemd restart. Session manager comes back with an empty registry. Protocol
-handlers reconnect, re-authenticate, get new mail-session instances. Users see
-a brief interruption -- IMAP clients reconnect automatically, SMTP deliveries
-queue and retry. No data loss. Same failure model as any stateless reverse
-proxy.
+handlers reconnect, re-authenticate, get new mail-session instances. SMTP
+deliveries tempfail and retry per protocol. For IMAP and POP3 the
+re-authentication is performed by the per-connection protocol handler using
+its retained credential, so the mail client itself never reconnects -- see
+session-recovery-design.md (maildancer#179). No data loss. Same failure
+model as any stateless reverse proxy.
 
 ### Storage availability
 
