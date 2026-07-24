@@ -11,7 +11,7 @@ mail daemons) and homelab (deployment / ansible).
 We went in circles on where the domain gid lives and it locked a live mailbox
 out of IMAP (the password verified; `mail-session` spawned with a gid that could
 not traverse the `2750 root:{gid}` data dirs, and the resulting spawn failure
-surfaced to the client as `AUTHENTICATIONFAILED`). Four hard rules. If a change
+surfaced to the client as `AUTHENTICATIONFAILED`). Six hard rules. If a change
 violates one, the change is wrong, not the rule.
 
 1. **OS uid/gid are identity allocation, NOT configuration.** They are exempt
@@ -53,6 +53,21 @@ violates one, the change is wrong, not the rule.
    given provider records do not. Auth configuration -- including LDAP/DB
    connection settings -- always lives in the config tree, never the data tree,
    exactly like `passwd`.
+
+6. **The id space is banded, and the bands are enforced in code**
+   (maildancer#197). `[1, 10000)` is reserved for service/system accounts
+   (the all-in-one image's fixed 900-906 ids); `[10000, ...)` minus the
+   well-known `65532-65535` band (distroless nonroot/nogroup, nobody, the
+   16-bit -1) is the allocatable space the shared counter draws from. The
+   boundary constants live in maildancer's `internal/idrange` -- the single
+   home; do not restate them as literals. Enforcement: the allocator skips
+   the excluded band; the identity package refuses to record an
+   unallocatable id in the maps; the daemons refuse `handler_uid`/`gid`/
+   `groups` values in the allocatable range (an allocated id there would
+   run the internet-facing handler as a real mail principal); and
+   `credentials.Lookup` refuses to spawn `mail-session` with map values
+   outside the allocatable range (a corrupted entry fails the login rather
+   than spawning as root or a service account).
 
 If you are about to add a `gid` to `config.toml`, to the postmaster file, or to
 `{data}/{domain}/config.toml`, stop -- that is the exact mistake this document
