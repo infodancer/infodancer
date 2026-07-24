@@ -33,6 +33,11 @@ smtpd (nonroot, binds no privileged ports)
 
 ### POP3 / IMAP retrieval
 
+> **Not yet true of imapd.** imapd currently serves every connection as a
+> goroutine in a single process (go-imap/v2), so it does not provide the
+> per-connection isolation described below. Being fixed:
+> https://github.com/infodancer/maildancer/issues/179
+
 ```
 pop3d / imapd (nonroot, binds no privileged ports)
   │
