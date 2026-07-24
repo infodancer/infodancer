@@ -1,7 +1,9 @@
 # Session Recovery Design (issue #179, later stages)
 
-Status: implemented (maildancer `internal/smclient` + imapd/pop3d wiring;
-see the #179 branch history). Covers the remaining scope of maildancer#179 after
+Status: implemented and verified in production (maildancer `internal/smclient`
++ imapd/pop3d wiring; see the #179 branch history; acceptance check 2026-07-24:
+Thunderbird IDLE across a live session-manager restart, mail pushed with no
+client reconnect). Covers the remaining scope of maildancer#179 after
 the fork-per-connection stages landed (imapd PR #187, pop3d PR #190, smtpd
 migration #189): credential retention in protocol handlers, transparent
 session recovery across a session-manager restart, and write-RPC replay
@@ -170,9 +172,17 @@ IMAP IDLE today is Redis pub/sub + a keepalive `UIDValidity` RPC every
 `session_keepalive` (default 5m) + `Rescan` on notification; there is no
 long-lived gRPC stream to the manager. Recovery slots in naturally:
 
-- The keepalive and the notification-triggered `Rescan` stop dropping
+- The keepalive and the notification-triggered rescan stop dropping
   errors: any trigger-set error starts recovery. After recovery, the
-  continuity check + `Rescan` queue whatever arrived during the outage.
+  continuity check + rescan queue whatever arrived during the outage.
+- The catch-up diff is computed by the *handler*, against the connection's
+  own message list -- not by the upstream `Rescan` RPC. mail-session's
+  rescan baseline is process-local cache, and recovery replaces the
+  process: the fresh one's folder open absorbs outage-window mail into its
+  baseline, silently emptying the RPC's diff (found live, maildancer#201).
+  General rule: any incremental state consumed across the recovery boundary
+  must be owned by the surviving side (the handler connection), never the
+  replaceable side (mail-session).
 - Redis is a separate transport and keeps delivering notifications during a
   manager restart, so recovery is usually triggered within seconds of new
   mail arriving -- well inside the acceptance window of one keepalive
