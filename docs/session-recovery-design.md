@@ -1,6 +1,7 @@
 # Session Recovery Design (issue #179, later stages)
 
-Status: draft for review. Covers the remaining scope of maildancer#179 after
+Status: implemented (maildancer `internal/smclient` + imapd/pop3d wiring;
+see the #179 branch history). Covers the remaining scope of maildancer#179 after
 the fork-per-connection stages landed (imapd PR #187, pop3d PR #190, smtpd
 migration #189): credential retention in protocol handlers, transparent
 session recovery across a session-manager restart, and write-RPC replay

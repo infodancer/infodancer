@@ -226,6 +226,18 @@ unbounded allocation in the dispatcher.
 - For POP3/IMAP: authenticate and access the mailbox via gRPC through
   session-manager (SessionService, MailboxService, FolderService)
 
+**Credential lifetime (POP3/IMAP handlers).** The handler retains the
+credential the client presented for the lifetime of its one connection,
+zeroed on close. This enables transparent session recovery across a
+session-manager restart (see session-recovery-design.md): session tokens
+are in-memory in session-manager and die with it, and only a fresh login
+can re-unseal the user's encryption key. The retention is confined to a
+subprocess already scoped to that one user -- a memory-disclosure bug
+leaks one user's credential, the same blast radius the connection already
+had. Handlers never hold unsealed key material; the key exists only in
+session-manager (transiently, zeroed after the fd-3 handoff) and in
+mail-session.
+
 ### session-manager
 
 - Owns the auth boundary: authenticates users via the auth library, holds
