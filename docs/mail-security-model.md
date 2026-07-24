@@ -33,10 +33,16 @@ smtpd (nonroot, binds no privileged ports)
 
 ### POP3 / IMAP retrieval
 
-> **Not yet true of imapd.** imapd currently serves every connection as a
-> goroutine in a single process (go-imap/v2), so it does not provide the
-> per-connection isolation described below. Being fixed:
+> **Not yet true of pop3d.** pop3d currently serves every connection as a
+> goroutine in a single process, so it does not provide the per-connection
+> isolation described below. imapd conforms as of maildancer PR #187 (it
+> forks `imapd protocol-handler` per connection). Being fixed:
 > https://github.com/infodancer/maildancer/issues/179
+>
+> Note the fd 4/fd 5 pipe protocol in the diagram predates session-manager:
+> today the protocol handler authenticates and reaches mail-session through
+> session-manager over gRPC (socket named in its config), and session-manager
+> spawns mail-session with the user's credentials.
 
 ```
 pop3d / imapd (nonroot, binds no privileged ports)
