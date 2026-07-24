@@ -15,16 +15,23 @@ This model is inspired by qmail's process separation architecture.
 
 ## Process Hierarchy
 
+All three daemons conform to the fork-per-connection model: smtpd, imapd
+(maildancer PR #187), and pop3d (PR #190) each fork a `protocol-handler`
+subprocess per accepted connection
+(https://github.com/infodancer/maildancer/issues/179), built on the shared
+`internal/connfork` dispatcher.
+
 ### SMTP delivery
 
 ```
-smtpd (nonroot, binds no privileged ports)
+smtpd serve (dispatcher, nonroot, binds no privileged ports)
   │
-  └── forks smtpd --protocol-handler (nonroot, handles SMTP conversation)
+  └── forks smtpd protocol-handler per connection (nonroot, one SMTP session)
         │
-        │  delivery via gRPC to mail-session --mode=oneshot
+        │  delivery via gRPC to session-manager (unix socket from config)
         │
-        └── smtpd spawns mail-session (uid=recipient, gid=domain)
+        └── session-manager spawns mail-session --mode=oneshot
+              (uid=recipient, gid=domain)
               │
               ├── rspamd/spam check (per-user/per-domain config)
               ├── sieve filtering
@@ -33,27 +40,19 @@ smtpd (nonroot, binds no privileged ports)
 
 ### POP3 / IMAP retrieval
 
-> All three daemons now conform: smtpd, imapd (maildancer PR #187), and
-> pop3d (maildancer PR #190) each fork a `protocol-handler` subprocess per
-> accepted connection (https://github.com/infodancer/maildancer/issues/179).
->
-> Note the fd 4/fd 5 pipe protocol in the diagram predates session-manager:
-> today the protocol handler authenticates and reaches mail-session through
-> session-manager over gRPC (socket named in its config), and session-manager
-> spawns mail-session with the user's credentials.
-
 ```
-pop3d / imapd (nonroot, binds no privileged ports)
+pop3d serve / imapd serve (dispatcher, nonroot, binds no privileged ports)
   │
-  └── forks pop3d --protocol-handler / imapd --protocol-handler (nonroot)
+  └── forks pop3d protocol-handler / imapd protocol-handler per connection
         │
-        │  auth success signal over pipe (fd 4)
+        │  auth + mailbox RPCs via gRPC to session-manager
+        │  (unix socket named in the shared config)
         │
-        └── parent dispatcher forks mail-session --mode=daemon (uid=user, gid=domain)
-              │  gRPC on unix domain socket (socket path sent to handler via fd 5)
+        └── session-manager spawns mail-session --mode=daemon
+              (uid=user, gid=domain)
               │
               └── long-lived process, handles LIST/RETR/DELE or IMAP commands
-                  via gRPC for the session duration
+                  via gRPC for the session duration; idle-reaped
 ```
 
 ### Port binding
@@ -169,60 +168,76 @@ over unix domain sockets. mail-session exposes four gRPC services:
   mail-deliver)
 - **WatchService** -- server-streaming notifications for IMAP IDLE
 
-The socket path is created by the parent dispatcher in a temporary directory
-with mode 0600 and communicated to the protocol handler via fd 5.
+Protocol handlers do not talk to mail-session directly at spawn time: they
+dial **session-manager** on the unix socket named in the shared config.
+session-manager authenticates the user (auth library), spawns mail-session
+under the user's credentials, and proxies the mailbox RPCs for the session
+(see session-manager-design.md).
 
 RPCs are stateless -- each request includes the folder name. The gRPC server
 calls `sess.Select()` before each folder-scoped operation. IMAP's stateful
 SELECT is handled by the imapd protocol translator.
 
-### Auth signal format (pop3d/imapd-protocol → dispatcher)
+### Authentication (protocol handler → session-manager)
 
-```
-AUTH 1\r\n
-USER:<localpart@domain>\r\n
-END\r\n
-```
-
-- Sent once over the auth pipe (fd 4), after the protocol handler has
-  successfully authenticated the user
-- The dispatcher looks up the uid/gid for the authenticated user and spawns
+- The protocol handler passes the client's credentials over gRPC
+  (`SessionService.Login`) to session-manager and receives a session token
+- session-manager performs the actual credential check via the auth library,
+  looks up the user's uid and domain gid, and spawns
   `mail-session --mode=daemon` with those credentials
-- mail-session writes `READY\n` to stdout when the gRPC socket is listening
-- The dispatcher writes the socket path to fd 5, enabling the protocol handler
-  to dial gRPC
+- The protocol handler never sees uids, password hashes, or the mail store;
+  a compromised handler holds at most one client's submitted credentials
 
 ### fd layout in protocol-handler subprocesses
 
 ```
-fd 3  TCP socket (from listener)
-fd 4  write-only: auth signal → dispatcher
-fd 5  read-only:  gRPC socket path from dispatcher
+fd 3  TCP socket (from the dispatcher's accept)
+fd 4  write-only: metrics report → dispatcher (present when metrics are
+      enabled; the handler ships its per-session series here at exit, and
+      the dispatcher aggregates them -- maildancer#188)
 ```
+
+The metrics pipe is one-way by construction: the child holds only the write
+end, so nothing can flow back into the possibly-lower-privileged handler, and
+the parent bounds its read (64 KiB) so a compromised child cannot drive
+unbounded allocation in the dispatcher.
 
 ## Process Responsibilities
 
-### smtpd / pop3d / imapd (listener)
+### smtpd / pop3d / imapd (dispatcher, `<daemon> serve`)
 
 - Bind sockets (unprivileged ports via Docker mapping)
-- Fork protocol handler subprocesses (`--protocol-handler` subcommand)
-- Receive auth signals from protocol handlers over pipe (fd 4)
-- Look up recipient/user uid and domain gid from domain config and passwd
-- Spawn `mail-session` with the correct credentials and gRPC socket
-- Never touch mail data directly
+- Fork one protocol-handler subprocess per accepted connection
+  (`protocol-handler` subcommand), passing the connection as fd 3 and
+  optionally dropping to `handler_uid`/`handler_gid` credentials
+- Maintain connection counters and aggregate handler metrics reports (fd 4)
+- Never speak the mail protocol, never load TLS private keys, never touch
+  mail data directly
 
-### smtpd --protocol-handler / pop3d --protocol-handler / imapd --protocol-handler
+### smtpd / pop3d / imapd protocol-handler
 
-- Handle the network conversation with the remote client
+- Handle the network conversation with the remote client; terminate TLS
+- Serve exactly one session, then exit
 - Validate recipient existence (SMTP 550) and relay policy
-- Do NOT resolve or handle uids -- pass only addresses to the dispatcher
+- Do NOT resolve or handle uids -- authentication and credential lookup live
+  in session-manager
 - Do NOT access mail data directly
-- For SMTP: deliver messages via gRPC DeliveryService to mail-session
-- For POP3/IMAP: access mailbox via gRPC MailboxService/FolderService
+- For SMTP: deliver messages via gRPC DeliveryService through session-manager
+- For POP3/IMAP: authenticate and access the mailbox via gRPC through
+  session-manager (SessionService, MailboxService, FolderService)
 
-### mail-session (own repo: infodancer/mail-session)
+### session-manager
 
-- Spawned by dispatcher as `uid=user, gid=domain`
+- Owns the auth boundary: authenticates users via the auth library, holds
+  the only access to passwd data on the retrieval path
+- Spawns mail-session with `SysProcAttr.Credential` (uid=user, gid=domain);
+  ref-counts and idle-reaps sessions
+- Proxies mailbox/folder/delivery/watch RPCs between protocol handlers and
+  mail-session
+
+### mail-session
+
+- Spawned by session-manager as `uid=user, gid=domain`
 - Operates in two modes:
   - **daemon** (POP3/IMAP): long-lived, serves gRPC for the authenticated
     session duration; idle-reaped after configurable timeout
@@ -270,23 +285,28 @@ Configuration lookup order:
 | Spam filter bypass via protocol manipulation | Spam check runs in mail-session after the gRPC boundary; protocol handler cannot influence it |
 | Uid reuse after user deletion | Monotonic counter never decrements; deleted uids are never reassigned |
 
-## Repository Map
+## Code Map
 
-| Repo | Role |
+All of the below live in the `infodancer/maildancer` monorepo:
+
+| Path | Role |
 |------|------|
-| `infodancer/smtpd` | SMTP listener + protocol handler subcommand |
-| `infodancer/pop3d` | POP3 listener + protocol handler subcommand |
-| `infodancer/imapd` | IMAP listener + protocol handler subcommand |
-| `infodancer/mail-session` | gRPC mailbox service: delivery, retrieval, folder management |
-| `infodancer/webadmin` | Admin UI: domain/user management, uid allocation |
-| `infodancer/auth` | Authentication: passwd backend, argon2id hashing |
-| `infodancer/msgstore` | Storage abstraction (used by mail-session) |
+| `internal/connfork` | Shared fork-per-connection dispatcher: accept, fd-3 handoff, credential drop, metrics report pipe, reaping |
+| `internal/procmetrics` | Handler-metrics transport: child report writer, parent-side aggregation |
+| `internal/smtpd`, `cmd/smtpd` | SMTP dispatcher + protocol-handler subcommand |
+| `internal/pop3d`, `cmd/pop3d` | POP3 dispatcher + protocol-handler subcommand |
+| `internal/imapd`, `cmd/imapd` | IMAP dispatcher + protocol-handler subcommand |
+| `internal/session-manager` | Auth boundary, mail-session lifecycle, RPC proxy |
+| `internal/mail-session` | gRPC mailbox service: delivery, retrieval, folder management |
+| `internal/webadmin` | Admin UI: domain/user management, uid allocation |
+| `auth` | Authentication: passwd backend, argon2id hashing |
+| `msgstore` | Storage abstraction (used by mail-session) |
 
 ## Implementation Notes
 
-- The `--protocol-handler` subcommand pattern means one binary per daemon,
-  two execution modes. The listener detects it was invoked with
-  `--protocol-handler` and enters the protocol handler code path directly.
+- The `protocol-handler` subcommand pattern means one binary per daemon,
+  two execution modes: `<daemon> serve` runs the dispatcher; the dispatcher
+  invokes the same binary as `<daemon> protocol-handler` per connection.
 - Uid/gid are set on spawned processes via `syscall.SysProcAttr.Credential`
   in Go -- this sets uid/gid on the child before any code runs.
 - The monotonic uid counter file must be updated atomically: write to a temp
