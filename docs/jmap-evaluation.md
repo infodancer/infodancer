@@ -53,7 +53,7 @@ JMAP requires `state` and `/changes` for Email, Mailbox, and Thread. msgstore tr
 
 ### 3. Token authentication cannot unseal the mailbox key
 
-JMAP clients authenticate with bearer tokens. The user's private key is sealed under their password (see [encryption-design.md](encryption-design.md)), and sessions authenticated without a password -- OAUTHBEARER today -- are served encrypted blobs raw. JMAP over OAuth against an encrypted mailbox returns ciphertext. HTTP Basic works, but because JMAP requests are stateless, the unsealed key has to be bound to something that outlives the request, and a token that unseals a mailbox is a retained credential. This is the same problem [session-recovery-design.md](session-recovery-design.md) addressed for IMAP IDLE, and OAUTHBEARER on IMAP already hits it. It needs one answer that covers every protocol, not a JMAP-specific one.
+JMAP clients authenticate with bearer tokens. The user's private key is sealed under their password (see [encryption-design.md](encryption-design.md)), and sessions authenticated without a password -- OAUTHBEARER today -- are served encrypted blobs raw. JMAP over OAuth against an encrypted mailbox returns ciphertext. HTTP Basic works, but because JMAP requests are stateless, the unsealed key has to be bound to something that outlives the request, and a token that unseals a mailbox is a retained credential. This is the same problem [session-recovery-design.md](session-recovery-design.md) addressed for IMAP IDLE, and OAUTHBEARER on IMAP already hits it. It needs one answer that covers every protocol, not a JMAP-specific one; that design is maildancer#254 (session-scoped token wrap slots in the keyring, with optional folder scope for agent identities).
 
 ### 4. The mail model assumes a server-side index
 
@@ -71,7 +71,7 @@ The process model does not obstruct JMAP. A `jmapd` is a protocol daemon in the 
 
 - msgstore modseq/change log (prerequisite; maildancer#253).
 - Stable message ids independent of folder. The Maildir unique filename base is a candidate; per-folder UIDs are not.
-- The token-to-key decision from item 3.
+- The token-to-key design from item 3 (maildancer#254), and folder-scope enforcement (maildancer#255, deferred) if JMAP sessions may carry agent tokens.
 - The encrypted header cache (maildancer#62) for acceptable query and thread performance.
 
 ## Revisit triggers
