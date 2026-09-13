@@ -14,7 +14,7 @@ This is a data loss scenario from the sender's perspective.
 The outbound queue is used exclusively for authenticated submission. Inbound
 mail is delivered directly to local mailboxes and never enters the queue.
 Every message in the queue has a known local sender. DSNs generated from this
-queue are therefore always delivered to a local mailbox — there is no
+queue are therefore always delivered to a local mailbox -- there is no
 backscatter risk.
 
 ## Decision
@@ -175,7 +175,7 @@ DSNs are diagnostic messages, not correspondence. Plain text is:
 - What MUAs with DSN-aware rendering expect and parse.
 
 An `alternative` HTML part would add template complexity, a second template to
-maintain, and MIME nesting depth — for no functional benefit. If a future need
+maintain, and MIME nesting depth -- for no functional benefit. If a future need
 arises (e.g., branded bounce pages for multi-tenant hosting), it can be added
 as an optional `multipart/alternative` wrapping part 1, without changing the
 rest of the structure.
@@ -216,11 +216,11 @@ Key details:
 
 If delivery of the DSN itself fails (session-manager down, user mailbox full),
 queue-manager logs the failure and discards the DSN. DSNs are never re-queued
-— generating a bounce for a bounce is an infinite loop.
+-- generating a bounce for a bounce is an infinite loop.
 
 ### Envelope `origin` field
 
-The DSN recipient is read from the envelope `origin` field — the authenticated
+The DSN recipient is read from the envelope `origin` field -- the authenticated
 submitter's address before VERP rewriting. This field is part of the JSON
 envelope format defined in [queue-design.md](queue-design.md#envelope-file).
 Envelopes missing `origin` (pre-migration) skip DSN generation with a log
@@ -228,7 +228,7 @@ warning.
 
 ### Delivery flow (updated)
 
-DSNs are generated on any permanent delivery failure — both TTL expiry and
+DSNs are generated on any permanent delivery failure -- both TTL expiry and
 mid-queue 5xx rejections. Results are always captured via stdout pipe.
 
 ```
@@ -285,7 +285,7 @@ smtpd's delivery path.
 - smtpd: write JSON envelopes with `origin` field at queue-inject time
 - mail-remote: replace line-based envelope parsing with `json.Unmarshal`
 - queue-manager: replace `parseTTL` with `json.Unmarshal` into envelope struct
-- No deployed queue to migrate — all repos change simultaneously
+- No deployed queue to migrate -- all repos change simultaneously
 
 ### Phase 1: mail-remote result reporting
 

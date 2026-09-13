@@ -15,16 +15,23 @@ This model is inspired by qmail's process separation architecture.
 
 ## Process Hierarchy
 
+All three daemons conform to the fork-per-connection model: smtpd, imapd
+(maildancer PR #187), and pop3d (PR #190) each fork a `protocol-handler`
+subprocess per accepted connection
+(https://github.com/infodancer/maildancer/issues/179), built on the shared
+`internal/connfork` dispatcher.
+
 ### SMTP delivery
 
 ```
-smtpd (nonroot, binds no privileged ports)
+smtpd serve (dispatcher, nonroot, binds no privileged ports)
   │
-  └── forks smtpd --protocol-handler (nonroot, handles SMTP conversation)
+  └── forks smtpd protocol-handler per connection (nonroot, one SMTP session)
         │
-        │  delivery via gRPC to mail-session --mode=oneshot
+        │  delivery via gRPC to session-manager (unix socket from config)
         │
-        └── smtpd spawns mail-session (uid=recipient, gid=domain)
+        └── session-manager spawns mail-session --mode=oneshot
+              (uid=recipient, gid=domain)
               │
               ├── rspamd/spam check (per-user/per-domain config)
               ├── sieve filtering
@@ -34,23 +41,24 @@ smtpd (nonroot, binds no privileged ports)
 ### POP3 / IMAP retrieval
 
 ```
-pop3d / imapd (nonroot, binds no privileged ports)
+pop3d serve / imapd serve (dispatcher, nonroot, binds no privileged ports)
   │
-  └── forks pop3d --protocol-handler / imapd --protocol-handler (nonroot)
+  └── forks pop3d protocol-handler / imapd protocol-handler per connection
         │
-        │  auth success signal over pipe (fd 4)
+        │  auth + mailbox RPCs via gRPC to session-manager
+        │  (unix socket named in the shared config)
         │
-        └── parent dispatcher forks mail-session --mode=daemon (uid=user, gid=domain)
-              │  gRPC on unix domain socket (socket path sent to handler via fd 5)
+        └── session-manager spawns mail-session --mode=daemon
+              (uid=user, gid=domain)
               │
               └── long-lived process, handles LIST/RETR/DELE or IMAP commands
-                  via gRPC for the session duration
+                  via gRPC for the session duration; idle-reaped
 ```
 
 ### Port binding
 
 All listeners run as nonroot (container uid 65532). Port mapping is handled
-entirely by Docker — the container listens on unprivileged ports and the host
+entirely by Docker -- the container listens on unprivileged ports and the host
 maps them to the standard mail ports (25, 465, 587, 110, 995, 143, 993).
 No `CAP_NET_BIND_SERVICE` or root is required.
 
@@ -61,7 +69,7 @@ No `CAP_NET_BIND_SERVICE` or root is required.
 - Uids and gids are allocated from a global monotonic counter managed by webadmin
 - The counter is stored in the data root and updated atomically (write + rename)
 - Uids and gids are never reused after deletion
-- There is no separation of ranges between domain gids and user uids — the
+- There is no separation of ranges between domain gids and user uids -- the
   counter is shared and values are large enough that artificial partitioning
   would only add complexity
 
@@ -78,7 +86,7 @@ No `CAP_NET_BIND_SERVICE` or root is required.
 username:argon2id-hash:mailbox:uid
 ```
 
-The domain gid is not stored per-user — it is read from the domain's
+The domain gid is not stored per-user -- it is read from the domain's
 `config.toml`. The gid is set on the spawned process by the dispatcher using
 the domain config, not from the passwd entry.
 
@@ -92,7 +100,58 @@ domains/{domain}/users/{user}/        drwx------  {user-uid}:{domain-gid}
 ```
 
 The setgid bit on domain and users directories ensures new files inherit the
-domain gid. User maildirs are `700` — only the user uid can read them.
+domain gid. User maildirs are `700` -- only the user uid can read them.
+
+### Config-tree permissions
+
+The read-only config tree (domain config.toml, passwd, uid/gid maps, forwards,
+legacy flat keys) has a second, independent nonroot consumer beyond the mail
+stack: **auth-oidc**, the leaf IdP, reads each domain's `config.toml` and
+`passwd` as the distroless nonroot uid (65532) over a read-only mount. The
+model:
+
+```
+config/                               drwxr-s---  webadmin:cfgread
+config/gid.toml                       -rw-r-----  webadmin:cfgread
+config/{domain}/                      drwxr-s---  webadmin:cfgread
+config/{domain}/config.toml           -rw-r-----  webadmin:cfgread
+config/{domain}/passwd                -rw-r-----  webadmin:cfgread
+config/{domain}/uid.toml              -rw-r-----  webadmin:cfgread
+config/{domain}/keys/                 drwxr-s---  webadmin:cfgread  (files 0640)
+```
+
+The webadmin service account (uid 905 in the all-in-one image) owns the tree
+because it is the writer; owning its writes is what lets it eventually run
+unprivileged. cfgread (gid 906) is a dedicated read group: membership is an
+explicit grant -- auth-oidc (distroless nonroot 65532) joins via compose
+`group_add`, queue-manager's account via image group membership -- and is
+deliberately NOT the distroless-nonroot gid, so merely running as distroless
+nonroot conveys nothing (maildancer#152; the original #145 model used
+root:65532 and is superseded). No world bits, so passwd stays readable only
+by the owner, root, and the read group. The setgid bit on the directories
+makes every file any writer creates later -- temp+rename saves, root-run
+userctl, the id allocator -- inherit the group without cooperation from the
+write sites; admin mutations additionally re-assert ownership on success.
+Enforced at domain creation and by the fix-perms doctor (maildancer
+`internal/admin/perms.go`, issues maildancer#145 + #152).
+
+mail-session (recipient uid) is deliberately **not** granted config-tree
+access: it cannot traverse these directories, and its domain loading degrades
+to defaults by design. Forwards resolve upstream in root-side session-manager;
+per-user keyrings live in the data tree beside the maildir. Do not "fix" a
+mail-session config-tree permission error by widening this model.
+
+**Invariant: no unsealed private key material in the config tree.** The tree
+is group-readable by design, so anything placed there is readable by every
+member of the read group. Private keys under `config/{domain}/keys/` are
+acceptable only because they are password-sealed (keyseal); an unsealed key
+written there is leaked to the read group the moment it lands. Unsealed
+secrets belong in the data tree under a 0700 per-user directory, or outside
+both trees entirely.
+
+auth-oidc runs as nonroot deliberately (it is the internet-facing IdP); a
+domain it cannot load at startup is served fail-closed rather than aborting
+init, and init fails only when no domain loads at all.
 
 ## Inter-Process Communication
 
@@ -101,68 +160,96 @@ domain gid. User maildirs are `700` — only the user uid can read them.
 All communication between protocol handlers and mail-session uses protobuf/gRPC
 over unix domain sockets. mail-session exposes four gRPC services:
 
-- **MailboxService** — message retrieval and management (List, Stat, Fetch,
+- **MailboxService** -- message retrieval and management (List, Stat, Fetch,
   Append, Copy, Move, SetFlags, Expunge, Rescan, Delete, Undelete, Commit)
-- **FolderService** — folder management (ListFolders, CreateFolder,
+- **FolderService** -- folder management (ListFolders, CreateFolder,
   DeleteFolder, RenameFolder)
-- **DeliveryService** — inbound delivery with structured results (replaces
+- **DeliveryService** -- inbound delivery with structured results (replaces
   mail-deliver)
-- **WatchService** — server-streaming notifications for IMAP IDLE
+- **WatchService** -- server-streaming notifications for IMAP IDLE
 
-The socket path is created by the parent dispatcher in a temporary directory
-with mode 0600 and communicated to the protocol handler via fd 5.
+Protocol handlers do not talk to mail-session directly at spawn time: they
+dial **session-manager** on the unix socket named in the shared config.
+session-manager authenticates the user (auth library), spawns mail-session
+under the user's credentials, and proxies the mailbox RPCs for the session
+(see session-manager-design.md).
 
-RPCs are stateless — each request includes the folder name. The gRPC server
+RPCs are stateless -- each request includes the folder name. The gRPC server
 calls `sess.Select()` before each folder-scoped operation. IMAP's stateful
 SELECT is handled by the imapd protocol translator.
 
-### Auth signal format (pop3d/imapd-protocol → dispatcher)
+### Authentication (protocol handler → session-manager)
 
-```
-AUTH 1\r\n
-USER:<localpart@domain>\r\n
-END\r\n
-```
-
-- Sent once over the auth pipe (fd 4), after the protocol handler has
-  successfully authenticated the user
-- The dispatcher looks up the uid/gid for the authenticated user and spawns
+- The protocol handler passes the client's credentials over gRPC
+  (`SessionService.Login`) to session-manager and receives a session token
+- session-manager performs the actual credential check via the auth library,
+  looks up the user's uid and domain gid, and spawns
   `mail-session --mode=daemon` with those credentials
-- mail-session writes `READY\n` to stdout when the gRPC socket is listening
-- The dispatcher writes the socket path to fd 5, enabling the protocol handler
-  to dial gRPC
+- The protocol handler never sees uids, password hashes, or the mail store;
+  a compromised handler holds at most one client's submitted credentials
 
 ### fd layout in protocol-handler subprocesses
 
 ```
-fd 3  TCP socket (from listener)
-fd 4  write-only: auth signal → dispatcher
-fd 5  read-only:  gRPC socket path from dispatcher
+fd 3  TCP socket (from the dispatcher's accept)
+fd 4  write-only: metrics report → dispatcher (present when metrics are
+      enabled; the handler ships its per-session series here at exit, and
+      the dispatcher aggregates them -- maildancer#188)
 ```
+
+The metrics pipe is one-way by construction: the child holds only the write
+end, so nothing can flow back into the possibly-lower-privileged handler, and
+the parent bounds its read (64 KiB) so a compromised child cannot drive
+unbounded allocation in the dispatcher.
 
 ## Process Responsibilities
 
-### smtpd / pop3d / imapd (listener)
+### smtpd / pop3d / imapd (dispatcher, `<daemon> serve`)
 
 - Bind sockets (unprivileged ports via Docker mapping)
-- Fork protocol handler subprocesses (`--protocol-handler` subcommand)
-- Receive auth signals from protocol handlers over pipe (fd 4)
-- Look up recipient/user uid and domain gid from domain config and passwd
-- Spawn `mail-session` with the correct credentials and gRPC socket
-- Never touch mail data directly
+- Fork one protocol-handler subprocess per accepted connection
+  (`protocol-handler` subcommand), passing the connection as fd 3 and
+  optionally dropping to `handler_uid`/`handler_gid` credentials
+- Maintain connection counters and aggregate handler metrics reports (fd 4)
+- Never speak the mail protocol, never load TLS private keys, never touch
+  mail data directly
 
-### smtpd --protocol-handler / pop3d --protocol-handler / imapd --protocol-handler
+### smtpd / pop3d / imapd protocol-handler
 
-- Handle the network conversation with the remote client
+- Handle the network conversation with the remote client; terminate TLS
+- Serve exactly one session, then exit
 - Validate recipient existence (SMTP 550) and relay policy
-- Do NOT resolve or handle uids — pass only addresses to the dispatcher
+- Do NOT resolve or handle uids -- authentication and credential lookup live
+  in session-manager
 - Do NOT access mail data directly
-- For SMTP: deliver messages via gRPC DeliveryService to mail-session
-- For POP3/IMAP: access mailbox via gRPC MailboxService/FolderService
+- For SMTP: deliver messages via gRPC DeliveryService through session-manager
+- For POP3/IMAP: authenticate and access the mailbox via gRPC through
+  session-manager (SessionService, MailboxService, FolderService)
 
-### mail-session (own repo: infodancer/mail-session)
+**Credential lifetime (POP3/IMAP handlers).** The handler retains the
+credential the client presented for the lifetime of its one connection,
+zeroed on close. This enables transparent session recovery across a
+session-manager restart (see session-recovery-design.md): session tokens
+are in-memory in session-manager and die with it, and only a fresh login
+can re-unseal the user's encryption key. The retention is confined to a
+subprocess already scoped to that one user -- a memory-disclosure bug
+leaks one user's credential, the same blast radius the connection already
+had. Handlers never hold unsealed key material; the key exists only in
+session-manager (transiently, zeroed after the fd-3 handoff) and in
+mail-session.
 
-- Spawned by dispatcher as `uid=user, gid=domain`
+### session-manager
+
+- Owns the auth boundary: authenticates users via the auth library, holds
+  the only access to passwd data on the retrieval path
+- Spawns mail-session with `SysProcAttr.Credential` (uid=user, gid=domain);
+  ref-counts and idle-reaps sessions
+- Proxies mailbox/folder/delivery/watch RPCs between protocol handlers and
+  mail-session
+
+### mail-session
+
+- Spawned by session-manager as `uid=user, gid=domain`
 - Operates in two modes:
   - **daemon** (POP3/IMAP): long-lived, serves gRPC for the authenticated
     session duration; idle-reaped after configurable timeout
@@ -210,27 +297,32 @@ Configuration lookup order:
 | Spam filter bypass via protocol manipulation | Spam check runs in mail-session after the gRPC boundary; protocol handler cannot influence it |
 | Uid reuse after user deletion | Monotonic counter never decrements; deleted uids are never reassigned |
 
-## Repository Map
+## Code Map
 
-| Repo | Role |
+All of the below live in the `infodancer/maildancer` monorepo:
+
+| Path | Role |
 |------|------|
-| `infodancer/smtpd` | SMTP listener + protocol handler subcommand |
-| `infodancer/pop3d` | POP3 listener + protocol handler subcommand |
-| `infodancer/imapd` | IMAP listener + protocol handler subcommand |
-| `infodancer/mail-session` | gRPC mailbox service: delivery, retrieval, folder management |
-| `infodancer/webadmin` | Admin UI: domain/user management, uid allocation |
-| `infodancer/auth` | Authentication: passwd backend, argon2id hashing |
-| `infodancer/msgstore` | Storage abstraction (used by mail-session) |
+| `internal/connfork` | Shared fork-per-connection dispatcher: accept, fd-3 handoff, credential drop, metrics report pipe, reaping |
+| `internal/procmetrics` | Handler-metrics transport: child report writer, parent-side aggregation |
+| `internal/smtpd`, `cmd/smtpd` | SMTP dispatcher + protocol-handler subcommand |
+| `internal/pop3d`, `cmd/pop3d` | POP3 dispatcher + protocol-handler subcommand |
+| `internal/imapd`, `cmd/imapd` | IMAP dispatcher + protocol-handler subcommand |
+| `internal/session-manager` | Auth boundary, mail-session lifecycle, RPC proxy |
+| `internal/mail-session` | gRPC mailbox service: delivery, retrieval, folder management |
+| `internal/webadmin` | Admin UI: domain/user management, uid allocation |
+| `auth` | Authentication: passwd backend, argon2id hashing |
+| `msgstore` | Storage abstraction (used by mail-session) |
 
 ## Implementation Notes
 
-- The `--protocol-handler` subcommand pattern means one binary per daemon,
-  two execution modes. The listener detects it was invoked with
-  `--protocol-handler` and enters the protocol handler code path directly.
+- The `protocol-handler` subcommand pattern means one binary per daemon,
+  two execution modes: `<daemon> serve` runs the dispatcher; the dispatcher
+  invokes the same binary as `<daemon> protocol-handler` per connection.
 - Uid/gid are set on spawned processes via `syscall.SysProcAttr.Credential`
-  in Go — this sets uid/gid on the child before any code runs.
+  in Go -- this sets uid/gid on the child before any code runs.
 - The monotonic uid counter file must be updated atomically: write to a temp
-  file, then `os.Rename` — rename is atomic on Linux.
+  file, then `os.Rename` -- rename is atomic on Linux.
 - The passwd file format adds a `uid` field to the existing
   `username:hash:mailbox` format. Existing entries without a uid field are
   treated as not yet migrated; webadmin assigns uids on next edit.

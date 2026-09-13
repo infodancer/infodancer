@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+#
+# Reject typographic ("smart") punctuation newly added to Markdown.
+# ASCII-only convention: -- for dashes, ' and " for quotes, ... for ellipsis.
+#
+# Scope is the STAGED DIFF (added lines only), not whole files -- so legacy
+# smart punctuation in content you did not touch never blocks a commit, and
+# nothing is auto-rewritten. Fix flagged lines by hand, or bypass with
+# `git commit --no-verify` if you really mean it. Vendored deps are excluded.
+set -uo pipefail
+
+# U+2010..U+2015 dashes, U+2018/2019/201C/201D curly quotes, U+2026 ellipsis,
+# U+2032/2033 primes, plus the matching HTML entities.
+pcre='[\x{2010}-\x{2015}\x{2018}\x{2019}\x{201C}\x{201D}\x{2026}\x{2032}\x{2033}]|&(mdash|ndash|lsquo|rsquo|ldquo|rdquo|hellip);'
+
+mapfile -t files < <(git diff --cached --name-only --diff-filter=ACM -- '*.md' \
+  | grep -vE '(^|/)(vendor|_vendor|node_modules)/' || true)
+[ ${#files[@]} -eq 0 ] && exit 0
+
+bad=0
+for f in "${files[@]}"; do
+  # Added lines only (strip the +++ file header), then test for smart punctuation.
+  hits=$(git diff --cached -U0 -- "$f" \
+    | grep -E '^\+' | grep -vE '^\+\+\+' \
+    | grep -nP "$pcre" || true)
+  if [ -n "$hits" ]; then
+    if [ "$bad" -eq 0 ]; then
+      echo "Smart punctuation in staged Markdown -- use ASCII (-- dashes, ' \" quotes, ... ellipsis):" >&2
+    fi
+    echo "  $f" >&2
+    printf '%s\n' "$hits" | sed 's/^/    + /' >&2
+    bad=1
+  fi
+done
+
+if [ "$bad" -ne 0 ]; then
+  echo "Commit blocked. Fix the lines above by hand (or 'git commit --no-verify' to override)." >&2
+  exit 1
+fi
+exit 0

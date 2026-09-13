@@ -86,7 +86,7 @@ One file per Maildir directory (INBOX and each `.folder/`), stored alongside
 **Header line**: `<version> V<uidvalidity> N<uidnext>`
 - Version: file format version (currently `3`, matching Dovecot convention)
 - V: UIDValidity (uint32)
-- N: UIDNext — next UID to assign (always > max assigned UID)
+- N: UIDNext -- next UID to assign (always > max assigned UID)
 
 **Entry lines**: `<uid> <maildir-key>`
 - uid: uint32, strictly ascending
@@ -101,9 +101,9 @@ One file per Maildir directory (INBOX and each `.folder/`), stored alongside
 2. Scan `cur/` directory for current Maildir keys
 3. Reconcile:
    - **Key in uidlist and cur/**: keep entry, include in results
-   - **Key in cur/ but not uidlist**: new message — assign UIDNext, increment
+   - **Key in cur/ but not uidlist**: new message -- assign UIDNext, increment
      UIDNext, append entry
-   - **Key in uidlist but not cur/**: externally deleted — remove entry
+   - **Key in uidlist but not cur/**: externally deleted -- remove entry
 4. If any changes occurred, rewrite `.uidlist`
 5. Return `[]MessageInfo` with numeric UIDs, sorted by UID ascending
 
@@ -128,11 +128,11 @@ uidlist entry. Returns the assigned UID.
 
 - `Delete()`: soft-delete unchanged (in-memory tracking by uint32 UID)
 - `Expunge()`: remove Maildir files, then remove entries from `.uidlist`
-  and rewrite. UIDs are never reused — UIDNext is not decremented.
+  and rewrite. UIDs are never reused -- UIDNext is not decremented.
 
 #### Retrieve / RetrieveFromFolder
 
-1. Read `.uidlist` (or use cached map from prior List call — see
+1. Read `.uidlist` (or use cached map from prior List call -- see
    Caching below)
 2. Look up uint32 UID → Maildir key
 3. Open and return the file
@@ -150,7 +150,7 @@ Read the N field from `.uidlist` header.
 
 When `.uidlist` does not exist:
 
-1. Generate UIDValidity from current Unix timestamp (uint32, truncated —
+1. Generate UIDValidity from current Unix timestamp (uint32, truncated --
    good until 2106)
 2. Scan `cur/` for all Maildir keys
 3. Sort keys lexicographically (Maildir keys start with a timestamp, so
@@ -205,7 +205,7 @@ tools).
 ### gRPC protobuf (mail-session)
 
 The `MessageInfo` proto message changes `string uid` to `uint32 uid`.
-Add `string key` if needed (probably not — mail-session uses msgstore
+Add `string key` if needed (probably not -- mail-session uses msgstore
 directly, so it never needs to expose the key).
 
 All RPC methods that take `string uid` change to `uint32 uid`:
@@ -218,7 +218,7 @@ Add `UIDNext` RPC (or extend `UIDValidity` response to include both).
 
 ### session-manager
 
-Passthrough changes only — update proto field types in proxy calls.
+Passthrough changes only -- update proto field types in proxy calls.
 
 ### imapd
 
@@ -257,9 +257,9 @@ iterate messages and check `Contains(imap.UID(m.UID))`.
 POP3 UIDL responses currently use the Maildir key string. After this
 change, `info.UID` is a uint32. Options:
 
-1. Use `strconv.FormatUint(uint64(info.UID), 10)` as the UIDL — valid
+1. Use `strconv.FormatUint(uint64(info.UID), 10)` as the UIDL -- valid
    per RFC 1939, stable across sessions, simpler
-2. Use `info.Key` — preserves current behavior for existing POP3 clients
+2. Use `info.Key` -- preserves current behavior for existing POP3 clients
 
 Option 1 is cleaner. One-time POP3 client re-sync (most POP3 clients
 re-download on UIDL change; this is a minor impact since POP3 is not the

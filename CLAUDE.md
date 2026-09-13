@@ -5,7 +5,7 @@ This file provides guidance to Claude Code when working in the infodancer/infoda
 ## Repository Purpose
 
 This repo contains cross-cutting documentation for the infodancer mail and web stack.
-It is not a runnable service — it holds design docs, protocol specs, and architecture
+It is not a runnable service -- it holds design docs, protocol specs, and architecture
 decisions that span multiple repos.
 
 ## Key Design Documents
@@ -23,6 +23,7 @@ decisions that span multiple repos.
 | [encryption-design.md](docs/encryption-design.md) | At-rest encryption: key model, delivery/retrieval points, fd key-passing convention |
 | [deployment-filesystem.md](docs/deployment-filesystem.md) | Config/data filesystem split, Docker volume strategy, path resolution |
 | [outbound-transport-routing.md](docs/outbound-transport-routing.md) | Per-sender-domain delivery transport routing (direct MX vs smarthost) |
+| [jmap-evaluation.md](docs/jmap-evaluation.md) | JMAP evaluated and deferred: ecosystem status, conflicts with the encryption model, revisit triggers |
 | [web-portfolio-architecture.md](docs/web-portfolio-architecture.md) | Web-stack layering: reusable feature modules (faq, planned blog), shared `infodancer/ui` design tokens, consumer-site shell pattern, Hugo retirement direction |
 
 ## Versioning Policy
@@ -46,5 +47,5 @@ Before making changes to **infodancer/auth** or **infodancer/webauth**:
 
 **Read [oidc-federation-design.md](docs/oidc-federation-design.md) first.**
 
-It documents use cases, the correct security controls, and — explicitly — decisions
+It documents use cases, the correct security controls, and -- explicitly -- decisions
 that were made, reversed, and must not be repeated.

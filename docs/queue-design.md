@@ -3,8 +3,8 @@
 
 ## Overview
 
-A unified on-disk queue that supports three delivery modes — SMTP smarthost,
-SMTP direct, and new-protocol retrieve-from-sender — without forking the queue
+A unified on-disk queue that supports three delivery modes -- SMTP smarthost,
+SMTP direct, and new-protocol retrieve-from-sender -- without forking the queue
 structure. A separate delivery binary handles all three modes; the queue manager
 drives retry and expiry.
 
@@ -70,7 +70,7 @@ JSON, one object per file:
 
 Envelope files are written atomically (tmp file → rename) by smtpd at
 queue-inject time. The JSON format allows adding fields without parsing code
-changes — `json.Unmarshal` into a struct ignores unknown fields.
+changes -- `json.Unmarshal` into a struct ignores unknown fields.
 
 ## TTL and Cleanup
 
@@ -81,7 +81,7 @@ reference counting.
 - Envelope files stay in `env/` until successfully delivered or TTL passes.
 
 On **successful delivery**: the envelope file is deleted. The body remains
-until TTL — no early cleanup, no ref counting.
+until TTL -- no early cleanup, no ref counting.
 
 On **TTL expiry** (detected by the queue manager on any pass):
 1. The delivery binary is invoked one final time via SMTP (safety net, regardless
@@ -96,7 +96,7 @@ that transition.
 
 ## Backoff via mtime
 
-The queue manager uses filesystem timestamps as delivery timing hints — no
+The queue manager uses filesystem timestamps as delivery timing hints -- no
 explicit retry counter or next-retry timestamp is stored in the envelope.
 Readiness is determined by `stat()` alone, without opening or parsing the
 envelope file.
@@ -127,7 +127,7 @@ mail-remote <body-file> <envelope-file> [envelope-file ...]
 
 The body file is the first argument; one or more envelope files follow. This
 allows the queue manager to batch all ready recipients for a given domain into a
-single invocation — one body read, one SMTP connection, multiple `RCPT TO`.
+single invocation -- one body read, one SMTP connection, multiple `RCPT TO`.
 It also enables clean manual single-recipient delivery for testing or redelivery.
 
 ```sh
@@ -144,7 +144,7 @@ mail-remote queue/msg/com/example/abc123 \
 DNS resolution once for that domain, and delivers to all supplied recipients in
 one session where the protocol permits (SMTP RCPT TO batching; new-protocol
 sends one notification per message regardless of recipient count). All envelopes
-must share the same recipient domain — the queue manager enforces this grouping.
+must share the same recipient domain -- the queue manager enforces this grouping.
 
 DNS lookup order per recipient domain:
 
@@ -159,7 +159,7 @@ between retries will automatically receive new-protocol delivery without any
 queue reconfiguration.
 
 Exit codes (per envelope):
-- 0: success — caller deletes the envelope file.
+- 0: success -- caller deletes the envelope file.
 - Temp-fail: caller updates env mtime (triggering backoff), retries later.
 - Perm-fail: caller deletes the envelope; no further attempts.
 
@@ -221,7 +221,7 @@ The recipient server retrieves the body by resolving
 
 Unlike inbound MX records (where any listed host can independently accept a
 new message), a retrieval SRV should resolve to **one canonical retrieval
-endpoint** per domain — either a single server, or a hostname behind a load
+endpoint** per domain -- either a single server, or a hostname behind a load
 balancer or cluster VIP. A specific body exists on exactly one server;
 multiple SRV targets without coordination would force the recipient to try
 all of them to find it.
@@ -235,7 +235,7 @@ approaches are:
   requests deterministically to the correct node.
 
 For most deployments the SRV target is simply `mail.example.com`, which is
-also the smtpd hostname — the distinction only matters at scale.
+also the smtpd hostname -- the distinction only matters at scale.
 
 ## VERP
 
