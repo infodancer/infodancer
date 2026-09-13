@@ -15,7 +15,11 @@ decisions that span multiple repos.
 | [mail-security-model.md](docs/mail-security-model.md) | Process separation, privilege model, uid/gid allocation, pipe protocol |
 | [oidc-federation-design.md](docs/oidc-federation-design.md) | Auth stack design: auth-oidc + webauth use cases, security model, what must not be changed |
 | [federated-identity-stack.md](docs/federated-identity-stack.md) | Identity federation overview |
-| [next-gen-messaging-protocol.md](docs/next-gen-messaging-protocol.md) | Messaging protocol design |
+| [next-gen-messaging-protocol.md](docs/next-gen-messaging-protocol.md) | Messaging protocol requirements (what and why) |
+| [protocol-threat-model.md](docs/protocol-threat-model.md) | Adversarial analysis; normative TM-* requirements for the protocol design |
+| [protocol-crypto-design.md](docs/protocol-crypto-design.md) | Algorithm suite, key hierarchy, encryption constructions, signing rules (CD-* decisions) |
+| [protocol-wire-spec.md](docs/protocol-wire-spec.md) | v1 wire protocol: notification framing, HTTPS resources, lifecycle, C2S surface (WS-* decisions) |
+| [protocol-v1-scope.md](docs/protocol-v1-scope.md) | v1 line: what ships first, what is deferred and why, implementation sequencing |
 | [encryption-design.md](docs/encryption-design.md) | At-rest encryption: key model, delivery/retrieval points, fd key-passing convention |
 | [deployment-filesystem.md](docs/deployment-filesystem.md) | Config/data filesystem split, Docker volume strategy, path resolution |
 | [outbound-transport-routing.md](docs/outbound-transport-routing.md) | Per-sender-domain delivery transport routing (direct MX vs smarthost) |
