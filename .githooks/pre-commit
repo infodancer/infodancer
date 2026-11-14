@@ -9,6 +9,21 @@
 # `git commit --no-verify` if you really mean it. Vendored deps are excluded.
 set -uo pipefail
 
+# --- Secret scan (gitleaks) over the staged diff ---------------------------
+# Runs before anything else, on every commit regardless of file type. --redact
+# keeps the matched value out of the terminal. If gitleaks is not installed we
+# warn and continue rather than block every commit on a missing tool; CI runs
+# the same scan. Allowlist false positives in .gitleaks.toml / .gitleaksignore.
+if command -v gitleaks >/dev/null 2>&1; then
+  if ! gitleaks git --staged --redact --no-banner --verbose --log-level warn; then
+    echo "Commit blocked: gitleaks found a potential secret in the staged diff." >&2
+    echo "Remove it, or 'git commit --no-verify' to override if it is a false positive." >&2
+    exit 1
+  fi
+else
+  echo "warning: gitleaks not found on PATH -- skipping secret scan (install: https://github.com/gitleaks/gitleaks)." >&2
+fi
+
 # U+2010..U+2015 dashes, U+2018/2019/201C/201D curly quotes, U+2026 ellipsis,
 # U+2032/2033 primes, plus the matching HTML entities.
 pcre='[\x{2010}-\x{2015}\x{2018}\x{2019}\x{201C}\x{201D}\x{2026}\x{2032}\x{2033}]|&(mdash|ndash|lsquo|rsquo|ldquo|rdquo|hellip);'
